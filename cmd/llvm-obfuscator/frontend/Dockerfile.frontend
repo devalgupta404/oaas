@@ -1,17 +1,17 @@
 # Frontend container: build and serve Vite app directly
 
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Install curl for healthchecks
 RUN apk add --no-cache curl
 
-# Copy package files
+# Copy package files first for better caching
 COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci --no-audit --no-fund
+# Install dependencies (this layer will be cached if package files don't change)
+RUN npm ci --no-audit --no-fund --prefer-offline
 
 # Copy source code
 COPY . .
@@ -19,10 +19,25 @@ COPY . .
 # Build the app
 RUN npm run build
 
+# Production stage - serve built files (smaller image)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install curl for healthchecks
+RUN apk add --no-cache curl
+
+# Copy built files and package.json
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./package.json
+# Install only vite (needed for preview) - much smaller than full node_modules
+RUN npm ci --no-audit --no-fund --prefer-offline --only=production && \
+    npm install vite --no-save --no-audit --no-fund
+
 # Expose port
 EXPOSE 4666
 
 # Serve the built app
-CMD ["npm", "run", "preview"]
+CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "4666"]
 
 
