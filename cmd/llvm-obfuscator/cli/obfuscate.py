@@ -20,7 +20,7 @@ from core import (
     compare_binaries,
 )
 from core.batch import load_batch_config
-from core.config import AdvancedConfiguration, Architecture, IndirectCallConfiguration, OutputConfiguration, UPXConfiguration
+from core.config import AdvancedConfiguration, IndirectCallConfiguration, OutputConfiguration, UPXConfiguration
 from core.exceptions import ObfuscationError
 from core.jotai_benchmark import JotaiBenchmarkManager, BenchmarkCategory
 from core.utils import create_logger, load_yaml, normalize_flags_and_passes
@@ -320,7 +320,6 @@ def _build_config(
     input_path: Path,
     output: Path,
     platform: Platform,
-    architecture: Architecture,
     level: ObfuscationLevel,
     enable_flattening: bool,
     enable_substitution: bool,
@@ -330,7 +329,6 @@ def _build_config(
     cycles: int,
     string_encryption: bool,
     symbol_obfuscation: bool,
-    constant_obfuscation: bool,
     fake_loops: int,
     enable_indirect_calls: bool,
     indirect_stdlib: bool,
@@ -362,7 +360,6 @@ def _build_config(
         linear_mba=enable_linear_mba or detected_passes.get("linear-mba", False),
         string_encrypt=string_encryption,
         symbol_obfuscate=symbol_obfuscation,
-        constant_obfuscate=constant_obfuscation,
     )
     indirect_call_config = IndirectCallConfiguration(
         enabled=enable_indirect_calls,
@@ -385,7 +382,6 @@ def _build_config(
     return ObfuscationConfig(
         level=level,
         platform=platform,
-        architecture=architecture,
         compiler_flags=flags,
         passes=passes,
         advanced=advanced,
@@ -399,7 +395,6 @@ def compile(
     input_file: Path = typer.Argument(..., help="C/C++ source file to obfuscate"),
     output: Path = typer.Option(Path("./obfuscated"), help="Output directory"),
     platform: Platform = typer.Option(Platform.LINUX, case_sensitive=False, help="Target platform"),
-    architecture: Architecture = typer.Option(Architecture.X86_64, case_sensitive=False, help="Target architecture"),
     level: int = typer.Option(3, min=1, max=5, help="Obfuscation level 1-5"),
     enable_flattening: bool = typer.Option(False, "--enable-flattening", help="Enable control flow flattening"),
     enable_substitution: bool = typer.Option(False, "--enable-substitution", help="Enable instruction substitution"),
@@ -408,7 +403,6 @@ def compile(
     enable_linear_mba: bool = typer.Option(False, "--enable-linear-mba", help="Enable Linear MBA bitwise obfuscation"),
     enable_string_encrypt: bool = typer.Option(False, "--enable-string-encrypt", help="Enable string encryption"),
     enable_symbol_obfuscate: bool = typer.Option(False, "--enable-symbol-obfuscate", help="Enable symbol obfuscation (MLIR pass)"),
-    enable_constant_obfuscate: bool = typer.Option(False, "--enable-constant-obfuscate", help="Enable constant obfuscation"),
     cycles: int = typer.Option(1, help="Number of obfuscation cycles"),
     fake_loops: int = typer.Option(0, "--fake-loops", help="Number of fake loops to insert"),
     enable_indirect_calls: bool = typer.Option(False, "--enable-indirect-calls", help="Enable indirect call obfuscation"),
@@ -429,18 +423,16 @@ def compile(
             input_path=input_file,
             output=output,
             platform=platform,
-            architecture=architecture,
             level=ObfuscationLevel(level),
             enable_flattening=enable_flattening,
             enable_substitution=enable_substitution,
             enable_bogus_cf=enable_bogus_cf,
             enable_split=enable_split,
             enable_linear_mba=enable_linear_mba,
-            cycles=cycles,
-            string_encryption=enable_string_encrypt,
-            symbol_obfuscation=enable_symbol_obfuscate,
-            constant_obfuscation=enable_constant_obfuscate,
-            fake_loops=fake_loops,
+            cycles=1,
+            string_encryption=string_encryption,
+            symbol_obfuscation=False,
+            fake_loops=0,
             enable_indirect_calls=enable_indirect_calls,
             indirect_stdlib=indirect_stdlib,
             indirect_custom=indirect_custom,
@@ -546,7 +538,6 @@ def jotai(
             input_path=Path("dummy"),  # Not used for benchmark config
             output=output,
             platform=Platform.LINUX,
-            architecture=Architecture.X86_64,
             level=ObfuscationLevel(level),
             enable_flattening=enable_flattening,
             enable_substitution=enable_substitution,
@@ -555,8 +546,6 @@ def jotai(
             enable_linear_mba=False,
             cycles=1,
             string_encryption=string_encryption,
-            symbol_obfuscation=False,
-            constant_obfuscation=False,
             fake_loops=0,
             enable_indirect_calls=False,
             indirect_stdlib=True,
