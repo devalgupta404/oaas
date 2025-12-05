@@ -12,9 +12,11 @@
 | Metric | Value |
 |--------|-------|
 | Total Demos Tested | 13 |
-| Successful | 9 (69.2%) |
-| Failed | 4 (30.8%) |
+| Successful | 11 (84.6%) |
+| Failed | 2 (15.4%) |
 | Average Score (Successful) | 99.8/100 |
+
+**Update (December 5, 2025)**: Bug fix applied - Demos 7 and 8 now pass after fixing LLVM 22+ attribute parsing issue.
 
 ---
 
@@ -61,13 +63,13 @@ All tests were conducted with the following layers enabled:
 | 4 | Password Strength Checker | C | PASS | 100.0/100 | ALL | All layers successfully applied |
 | 5 | Fibonacci Calculator | C | PASS | 100.0/100 | ALL | All layers successfully applied |
 | 6 | QuickSort Algorithm | C++ | PASS | 100.0/100 | PARTIAL | Flattening disabled (C++ exceptions) |
-| 7 | Matrix Operations | C | FAIL | - | - | LLVM IR parsing error (math.h) |
-| 8 | Signal Processing DSP | C | FAIL | - | - | 502 timeout (math.h functions) |
+| 7 | Matrix Operations | C | PASS | 100.0/100 | ALL | Fixed: LLVM 22+ attribute stripping |
+| 8 | Signal Processing DSP | C | PASS | 100.0/100 | ALL | Fixed: LLVM 22+ attribute stripping |
 | 9 | Exception Handler | C++ | PASS | 99.7/100 | PARTIAL | Flattening disabled (C++ exceptions) |
 | 10 | License Validator | C++ | PASS | 100.0/100 | PARTIAL | Flattening disabled (C++ exceptions) |
 | 11 | Configuration Manager | C++ | PASS | 100.0/100 | PARTIAL | Flattening disabled (C++ exceptions) |
-| 12 | SQL Database Engine | C | FAIL | - | - | LLVM IR parsing error (math.h) |
-| 13 | Game Engine | C++ | FAIL | - | - | clang++ compilation error |
+| 12 | SQL Database Engine | C | FAIL | - | - | MLIR pass loses function declarations |
+| 13 | Game Engine | C++ | FAIL | - | - | MLIR string encryption size mismatch |
 
 ---
 
@@ -156,31 +158,32 @@ All tests were conducted with the following layers enabled:
 ---
 
 ### Demo 7: Matrix Operations (C)
-**Status**: FAIL
-**Score**: N/A
-**Layers Applied**: N/A
+**Status**: PASS
+**Score**: 100.0/100
+**Layers Applied**: ALL
 
-**Error**:
-```
-LLVM IR parsing error: unterminated attribute group
-Error at line with math intrinsics (cos, sin functions)
-```
+**Evidence**:
+- All OLLVM passes successfully applied
+- UPX packing completed
+- All compiler flags applied
+- No warnings or errors
 
-**Root Cause**: The program uses `<math.h>` functions (`cos`, `sin`) which generate LLVM intrinsics that cause parsing errors in the obfuscation pipeline.
+**Fix Applied**: LLVM 22+ attribute stripping added to obfuscator.py to handle math intrinsic attributes (`nocreateundeforpoison`, `memory(none)`, `speculatable`). Also added `-lm` flag for math library linking.
 
 ---
 
 ### Demo 8: Signal Processing DSP (C)
-**Status**: FAIL
-**Score**: N/A
-**Layers Applied**: N/A
+**Status**: PASS
+**Score**: 100.0/100
+**Layers Applied**: ALL
 
-**Error**:
-```
-502 Bad Gateway (timeout)
-```
+**Evidence**:
+- All OLLVM passes successfully applied
+- UPX packing completed
+- All compiler flags applied
+- No warnings or errors
 
-**Root Cause**: The program uses complex `<math.h>` functions which cause the obfuscation process to timeout. Same underlying issue as Demo 7.
+**Fix Applied**: Same fix as Demo 7 - LLVM 22+ attribute stripping and `-lm` flag for math library linking.
 
 ---
 
@@ -236,11 +239,13 @@ Error at line with math intrinsics (cos, sin functions)
 
 **Error**:
 ```
-/app/reports/.../pasted_source_from_mlir.ll:5954:31: error: unterminated attribute group
-attributes #10 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
+/app/reports/.../pasted_source_from_mlir.ll:5954:31: error: use of undefined value '@strcmp'
+call i32 @strcmp(ptr %encrypted_str, ptr @.str.49)
 ```
 
-**Root Cause**: The program uses `<math.h>` functions (`sqrt`, `fmod`, `pow`, `log2`) which generate LLVM intrinsics with attributes that cause parsing errors in the obfuscation pipeline.
+**Root Cause**: MLIR string encryption pass loses external function declarations. When the pass encrypts string literals, it fails to preserve the declarations for external functions like `strcmp`, `strlen`, etc. that are referenced in the code. This is a separate bug from the LLVM 22+ attribute issue (which was fixed).
+
+**Bug Classification**: MLIR Pass Bug - Function Declaration Loss
 
 ---
 
@@ -251,25 +256,28 @@ attributes #10 = { nocallback nocreateundeforpoison nofree nosync nounwind specu
 
 **Error**:
 ```
-Command failed with exit code 1: clang++ /app/reports/.../pasted_source.cpp -S -emit-llvm -o ...
+/app/reports/.../pasted_source_from_mlir.ll:50886:31: error: constant expression type mismatch: got type '[22 x i8]' but expected '[24 x i8]'
 ```
 
-**Root Cause**: Compilation stage failure before obfuscation could begin. Possible C++17 feature compatibility issue or complex template instantiation error.
+**Root Cause**: MLIR string encryption pass corrupts string size metadata. When encrypting strings, the pass miscalculates the resulting array size, causing a type mismatch between the declared type and the actual encrypted content. This is a separate bug from Demo 12 but also in the MLIR string encryption pass.
+
+**Note**: Original compilation error (missing `#include <climits>`) was fixed in demo code. Current failure is due to MLIR pass bug.
+
+**Bug Classification**: MLIR Pass Bug - String Size Corruption
 
 ---
 
 ## Error Pattern Analysis
 
-### Pattern 1: Math.h LLVM IR Parsing Errors
-**Affected Demos**: 7, 8, 12
-**Root Cause**: Programs using `<math.h>` functions generate LLVM intrinsics with special attributes that the obfuscation pipeline cannot parse correctly.
+### Pattern 1: Math.h LLVM IR Parsing Errors (FIXED)
+**Affected Demos**: 7, 8 (previously also 12, 13)
+**Status**: RESOLVED
 
-**Functions Known to Cause Issues**:
-- `cos`, `sin` (Demo 7)
-- Complex DSP math functions (Demo 8)
-- `sqrt`, `fmod`, `pow`, `log2` (Demo 12)
+**Original Issue**: Programs using `<math.h>` functions generated LLVM intrinsics with LLVM 22+ attributes (`nocreateundeforpoison`, `memory(none)`, `speculatable`) that the obfuscation pipeline could not parse.
 
-**Recommendation**: Backend fix needed to handle math intrinsic attributes properly, or pre-process LLVM IR to normalize attribute groups.
+**Fix Applied**: Added regex-based attribute stripping in `obfuscator.py` before passing IR to `opt`. Also added `-lm` linker flag for math library functions.
+
+**Result**: Demos 7 and 8 now pass successfully.
 
 ### Pattern 2: C++ Exception Handling
 **Affected Demos**: 2, 6, 9, 10, 11
@@ -279,11 +287,21 @@ Command failed with exit code 1: clang++ /app/reports/.../pasted_source.cpp -S -
 
 **Status**: This is expected behavior, not a bug. The system correctly detects and adapts.
 
-### Pattern 3: C++ Compilation Errors
-**Affected Demos**: 13
-**Root Cause**: Complex C++ code with advanced features may fail during initial compilation stage.
+### Pattern 3: MLIR Pass Bugs (NEW - OPEN)
+**Affected Demos**: 12, 13
+**Status**: UNRESOLVED - Requires MLIR pass fixes
 
-**Recommendation**: Review the Game Engine demo for C++ standard compatibility and simplify if needed.
+**Bug 3a: Function Declaration Loss (Demo 12)**
+- MLIR string encryption pass loses external function declarations
+- Error: `undefined value '@strcmp'`
+- Functions like `strcmp`, `strlen` are called but not declared in output IR
+
+**Bug 3b: String Size Corruption (Demo 13)**
+- MLIR string encryption pass miscalculates encrypted string array sizes
+- Error: `constant expression type mismatch: got type '[22 x i8]' but expected '[24 x i8]'`
+- Type mismatch between declared array size and actual content
+
+**Recommendation**: Both bugs require investigation and fixes in the MLIR string encryption pass (`mlir-string-obfuscation`).
 
 ---
 
@@ -294,6 +312,8 @@ Command failed with exit code 1: clang++ /app/reports/.../pasted_source.cpp -S -
 - Demo 3: Authentication System (C)
 - Demo 4: Password Strength Checker (C)
 - Demo 5: Fibonacci Calculator (C)
+- Demo 7: Matrix Operations (C) - FIXED
+- Demo 8: Signal Processing DSP (C) - FIXED
 
 ### Partially Applied (Flattening Disabled)
 - Demo 2: Hello World (C++)
@@ -302,26 +322,21 @@ Command failed with exit code 1: clang++ /app/reports/.../pasted_source.cpp -S -
 - Demo 10: License Validator (C++)
 - Demo 11: Configuration Manager (C++)
 
-### Not Applied (Failed)
-- Demo 7: Matrix Operations (C)
-- Demo 8: Signal Processing DSP (C)
-- Demo 12: SQL Database Engine (C)
-- Demo 13: Game Engine (C++)
+### Not Applied (Failed - MLIR Pass Bugs)
+- Demo 12: SQL Database Engine (C) - Function declaration loss
+- Demo 13: Game Engine (C++) - String size corruption
 
 ---
 
 ## Recommendations
 
-1. **Fix Math.h Intrinsic Handling**: Investigate the LLVM IR parsing issue with math intrinsics to enable obfuscation of programs using math functions.
+1. **COMPLETED: Fix Math.h Intrinsic Handling**: LLVM 22+ attribute stripping implemented in `obfuscator.py`. Demos 7 and 8 now pass.
 
-2. **Review Demo 13 Compatibility**: Check Game Engine C++ demo for C++ standard compatibility issues with clang++.
+2. **OPEN: Fix MLIR Function Declaration Loss**: The MLIR string encryption pass needs to preserve external function declarations (strcmp, strlen, etc.). Affects Demo 12.
 
-3. **Document C++ Flattening Limitation**: Add user-facing documentation explaining that Control Flow Flattening is automatically disabled for C++ code with exception handling.
+3. **OPEN: Fix MLIR String Size Calculation**: The MLIR string encryption pass miscalculates array sizes for encrypted strings. Affects Demo 13.
 
-4. **Consider Alternative Math Handling**: Explore options like:
-   - Pre-processing LLVM IR to normalize attribute groups
-   - Using libm implementations instead of intrinsics
-   - Selective pass application for math-heavy code
+4. **Document C++ Flattening Limitation**: Add user-facing documentation explaining that Control Flow Flattening is automatically disabled for C++ code with exception handling.
 
 ---
 
@@ -336,58 +351,34 @@ Command failed with exit code 1: clang++ /app/reports/.../pasted_source.cpp -S -
 
 ## Re-Test Verification (December 5, 2025)
 
-All 4 failed demos were re-tested to confirm results. **All failures confirmed consistent.**
+### Fix Applied: LLVM 22+ Attribute Stripping
 
-### Demo 7: Matrix Operations (C) - CONFIRMED FAIL
-**Error**: LLVM IR parsing error
-```
-/app/reports/.../pasted_source_from_mlir.ll: error: unterminated attribute group
-attributes #N = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-```
-**Root Cause**: math.h functions (cos, sin) generate LLVM intrinsics with incompatible attributes.
+A fix was implemented in `obfuscator.py` to strip incompatible LLVM 22+ attributes from IR before passing to `opt`:
+- Strips `nocreateundeforpoison` attribute
+- Strips `memory(...)` attribute syntax
+- Strips `speculatable` attribute
+- Strips `convergent` attribute
+- Added `-lm` linker flag for math library functions
 
-### Demo 8: Signal Processing DSP (C) - CONFIRMED FAIL
-**Error**: LLVM IR parsing error (same pattern as Demo 7)
-```
-unterminated attribute group
-```
-**Root Cause**: Complex math.h functions cause the same LLVM IR parsing failure.
+### Post-Fix Results
 
-### Demo 12: SQL Database Engine (C) - CONFIRMED FAIL
-**Error**: LLVM IR parsing error
-```
-/app/reports/.../pasted_source_from_mlir.ll:5954:31: error: unterminated attribute group
-attributes #10 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-```
-**Root Cause**: math.h functions (sqrt, fmod, pow, log2) generate incompatible LLVM intrinsics.
+| Demo | Pre-Fix Result | Post-Fix Result | Status |
+|------|----------------|-----------------|--------|
+| 7 | FAIL (LLVM IR error) | PASS (100.0/100) | FIXED |
+| 8 | FAIL (timeout/IR error) | PASS (100.0/100) | FIXED |
+| 12 | FAIL (LLVM IR error) | FAIL (undefined @strcmp) | NEW BUG |
+| 13 | FAIL (clang++ error) | FAIL (type mismatch) | NEW BUG |
 
-### Demo 13: Game Engine (C++) - FIXED & RE-TESTED
-**Original Error**: Compilation failure (missing `#include <climits>`)
-**Fix Applied**: Added `#include <climits>` to demo code in `largeDemos.ts`
-**Fix Result**: Compilation now passes
+### Remaining Issues
 
-**New Error After Fix**: LLVM IR parsing error (same as Demos 7, 8, 12)
-```
-/app/reports/.../pasted_source_from_mlir.ll:50886:31: error: unterminated attribute group
-attributes #15 = { nocallback nocreateundeforpoison nofree nosync nounwind speculatable willreturn memory(none) }
-```
-**Root Cause**: Demo uses `<cmath>` functions (std::sqrt, std::cos, std::sin, std::pow, std::floor, std::abs) which generate LLVM intrinsics with incompatible attributes.
+**Demo 12**: After LLVM 22+ attribute fix, a new error surfaced - MLIR string encryption pass loses external function declarations.
 
-**Conclusion**: Demo 13 has TWO issues:
-1. Missing `#include <climits>` - **FIXED**
-2. Uses cmath functions causing LLVM IR parsing error - **Same backend issue as Demos 7, 8, 12**
+**Demo 13**: After fixing both `#include <climits>` and LLVM 22+ attributes, a new error surfaced - MLIR string encryption pass corrupts string array sizes.
 
-### Re-Test Summary
-| Demo | Original Result | Re-Test Result | Consistent |
-|------|-----------------|----------------|------------|
-| 7 | FAIL (LLVM IR error) | FAIL (LLVM IR error) | YES |
-| 8 | FAIL (timeout/IR error) | FAIL (LLVM IR error) | YES |
-| 12 | FAIL (LLVM IR error) | FAIL (LLVM IR error) | YES |
-| 13 | FAIL (clang++ error) | FAIL (LLVM IR error after fix) | PARTIALLY - different error after code fix |
-
-**Note on Demo 13**: After fixing the missing `#include <climits>`, Demo 13 now fails with the same LLVM IR parsing error as Demos 7, 8, and 12. All 4 failing demos share the same root cause: math functions generating incompatible LLVM intrinsics.
+Both remaining failures are MLIR pass bugs unrelated to the original LLVM 22+ attribute parsing issue.
 
 ---
 
 *Report generated by automated Playwright testing on December 5, 2025*
-*Re-test verification completed on December 5, 2025*
+*Fix applied and re-tested on December 5, 2025*
+*Success rate improved from 69.2% (9/13) to 84.6% (11/13)*
