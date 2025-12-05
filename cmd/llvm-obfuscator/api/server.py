@@ -769,7 +769,10 @@ def _run_obfuscation(job_id: str, source_path: Path, config: ObfuscationConfig) 
         progress_tracker.publish_sync(ProgressEvent(job_id=job_id, stage="running", progress=0.1, message="Compilation started"))
         result = obfuscator.obfuscate(source_path, config, job_id=job_id)
         job_manager.update_job(job_id, status="completed", result=result)
-        job_manager.attach_reports(job_id, result.get("report_paths", {}))
+        report_paths = result.get("report_paths", {})
+        logger.info("[PDF DEBUG] Attaching reports at line 772 - report_paths keys: %s", list(report_paths.keys()))
+        logger.info("[PDF DEBUG] Full report_paths: %s", report_paths)
+        job_manager.attach_reports(job_id, report_paths)
         progress_tracker.publish_sync(ProgressEvent(job_id=job_id, stage="completed", progress=1.0, message="Obfuscation completed"))
     except Exception as exc:  # pragma: no cover - background tasks
         logger.exception("Job %s failed", job_id)
@@ -1632,15 +1635,23 @@ async def api_obfuscate_sync(
             result["platform_binaries"] = platform_binaries
             job_manager.update_job(job.job_id, result=result)
 
+            logger.info("[PLATFORM DEBUG] platform_binaries dict: %s", platform_binaries)
+            logger.info("[PLATFORM DEBUG] platform_binaries.get('linux'): %s", platform_binaries.get("linux"))
+            logger.info("[PLATFORM DEBUG] platform_binaries.get('windows'): %s", platform_binaries.get("windows"))
+            logger.info("[PLATFORM DEBUG] platform_binaries.get('macos'): %s", platform_binaries.get("macos"))
+
+            download_urls_response = {
+                "linux": f"/api/download/{job.job_id}/linux" if platform_binaries.get("linux") else None,
+                "windows": f"/api/download/{job.job_id}/windows" if platform_binaries.get("windows") else None,
+                "macos": f"/api/download/{job.job_id}/macos" if platform_binaries.get("macos") else None,
+            }
+            logger.info("[PLATFORM DEBUG] Final download_urls response: %s", download_urls_response)
+
             return {
                 "job_id": job.job_id,
                 "status": "completed",
                 "download_url": f"/api/download/{job.job_id}",
-                "download_urls": {
-                    "linux": f"/api/download/{job.job_id}/linux" if platform_binaries.get("linux") else None,
-                    "windows": f"/api/download/{job.job_id}/windows" if platform_binaries.get("windows") else None,
-                    "macos": f"/api/download/{job.job_id}/macos" if platform_binaries.get("macos") else None,
-                },
+                "download_urls": download_urls_response,
                 "report_url": f"/api/report/{job.job_id}",
             }
         else:
@@ -1752,16 +1763,34 @@ async def api_list_jobs():
 
 @app.get("/api/report/{job_id}")
 async def api_get_report(job_id: str, fmt: str = "json"):
+    logger.info("[PDF DEBUG] Requesting report - job_id: %s, format: %s", job_id, fmt)
     try:
         job = job_manager.get_job(job_id)
+        logger.info("[PDF DEBUG] Job found: %s", job.job_id)
     except JobNotFoundError:
+        logger.error("[PDF DEBUG] Job not found: %s", job_id)
         raise HTTPException(status_code=404, detail="Job not found")
+
+    logger.info("[PDF DEBUG] job.report_paths dict: %s", job.report_paths)
+    logger.info("[PDF DEBUG] Available formats in report_paths: %s", list(job.report_paths.keys()))
+
     report_path = job.report_paths.get(fmt)
+    logger.info("[PDF DEBUG] Looking for format '%s', got path: %s", fmt, report_path)
+
     if not report_path:
+        logger.error("[PDF DEBUG] Report not available for format: %s", fmt)
+        logger.error("[PDF DEBUG] Available formats: %s", list(job.report_paths.keys()))
         raise HTTPException(status_code=404, detail="Report not available")
+
     path = Path(report_path)
+    logger.info("[PDF DEBUG] Report path exists: %s", path.exists())
+    logger.info("[PDF DEBUG] Full path: %s", path)
+
     if not path.exists():
+        logger.error("[PDF DEBUG] Report file missing at: %s", path)
         raise HTTPException(status_code=404, detail="Report file missing")
+
+    logger.info("[PDF DEBUG] Returning file: %s", path)
     return FileResponse(path)
 
 
