@@ -30,8 +30,8 @@ RUN apk add --no-cache curl
 # Copy built files and package.json
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
-# Install only vite (needed for preview) - much smaller than full node_modules
-RUN npm ci --no-audit --no-fund --prefer-offline --only=production && \
+# Install only production dependencies + vite (needed for preview)
+RUN npm ci --omit=dev --no-audit --no-fund --prefer-offline && \
     npm install vite --no-save --no-audit --no-fund
 
 # Expose port
