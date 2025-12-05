@@ -1273,16 +1273,24 @@ function App() {
         macos: null,
       };
 
+      console.log('[DEBUG] Full response data:', JSON.stringify(data, null, 2));
+      console.log('[DEBUG] data.download_urls:', data.download_urls);
+      console.log('[DEBUG] data.download_url:', data.download_url);
+
       if (data.download_urls) {
         // Multi-platform build - use platform-specific URLs
+        console.log('[DEBUG] Using multi-platform URLs');
         downloadUrlsMap.linux = data.download_urls.linux || null;
         downloadUrlsMap.windows = data.download_urls.windows || null;
         downloadUrlsMap.macos = data.download_urls.macos || null;
+        console.log('[DEBUG] Download URLs map:', downloadUrlsMap);
       } else if (data.download_url) {
         // Legacy single platform build
+        console.log('[DEBUG] Using legacy single platform URL:', data.download_url);
         downloadUrlsMap.linux = data.download_url;
       }
 
+      console.log('[DEBUG] Final downloadUrlsMap before setState:', downloadUrlsMap);
       setDownloadUrls(downloadUrlsMap);
       setBinaryName(customBinaryName);
       setProgress({ message: 'Complete!', percent: 100 });
