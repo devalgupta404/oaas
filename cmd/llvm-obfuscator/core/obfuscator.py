@@ -443,8 +443,12 @@ class LLVMObfuscator:
 
         if self.reporter:
             report = self.reporter.generate_report(job_data)
+            logger.info("[OBFUSCATOR DEBUG] config.output.report_formats: %s", config.output.report_formats)
+            logger.info("[OBFUSCATOR DEBUG] Calling export with formats: %s", config.output.report_formats)
             exported = self.reporter.export(report, job_id or output_binary.stem, config.output.report_formats)
+            logger.info("[OBFUSCATOR DEBUG] Export returned: %s", list(exported.keys()))
             job_data["report_paths"] = {fmt: str(path) for fmt, path in exported.items()}
+            logger.info("[OBFUSCATOR DEBUG] Final job_data report_paths: %s", list(job_data["report_paths"].keys()))
         return job_data
 
     # Internal helpers -----------------------------------------------------
