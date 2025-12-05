@@ -27,6 +27,10 @@ on:
         required: false
         default: "3"
 
+concurrency:
+  group: jotai-tests-${{ github.ref }}-${{ github.event.pull_request.number || '' }}
+  cancel-in-progress: true
+
 jobs:
   test-jotai:
     runs-on: ubuntu-latest
