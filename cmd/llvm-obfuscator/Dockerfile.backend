@@ -62,49 +62,34 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application code
-COPY . /app
+# Install custom LLVM toolchain and passes (copy plugins first - they change less frequently)
+RUN mkdir -p /usr/local/llvm-obfuscator/bin /usr/local/llvm-obfuscator/lib
 
-# Install custom LLVM toolchain and passes
-RUN mkdir -p /usr/local/llvm-obfuscator/bin
-RUN mkdir -p /usr/local/llvm-obfuscator/lib
-
-# Copy custom LLVM 22 binaries and plugins
-COPY plugins/linux-x86_64/clang /usr/local/llvm-obfuscator/bin/clang.real
-COPY plugins/linux-x86_64/clang++ /usr/local/llvm-obfuscator/bin/clang++
-COPY plugins/linux-x86_64/opt /usr/local/llvm-obfuscator/bin/opt
-COPY plugins/linux-x86_64/llvm-dis /usr/local/llvm-obfuscator/bin/llvm-dis
-COPY plugins/linux-x86_64/mlir-opt /usr/local/llvm-obfuscator/bin/mlir-opt
-COPY plugins/linux-x86_64/mlir-translate /usr/local/llvm-obfuscator/bin/mlir-translate
-COPY plugins/linux-x86_64/clangir /usr/local/llvm-obfuscator/bin/clangir
-# LLD linker (required for macOS cross-compilation and LTO)
-COPY plugins/linux-x86_64/lld /usr/local/llvm-obfuscator/bin/lld
-COPY plugins/linux-x86_64/LLVMObfuscationPlugin.so /usr/local/llvm-obfuscator/lib/
-COPY plugins/linux-x86_64/MLIRObfuscation.so /usr/local/llvm-obfuscator/lib/
-COPY plugins/linux-x86_64/libLLVM.so.22.0git /usr/local/llvm-obfuscator/lib/
+# Copy custom LLVM 22 binaries and plugins (batch copy for better caching)
+COPY plugins/linux-x86_64/clang plugins/linux-x86_64/clang++ plugins/linux-x86_64/opt \
+     plugins/linux-x86_64/llvm-dis plugins/linux-x86_64/mlir-opt \
+     plugins/linux-x86_64/mlir-translate plugins/linux-x86_64/clangir \
+     plugins/linux-x86_64/lld \
+     /usr/local/llvm-obfuscator/bin/
+COPY plugins/linux-x86_64/LLVMObfuscationPlugin.so \
+     plugins/linux-x86_64/MLIRObfuscation.so \
+     plugins/linux-x86_64/libLLVM.so.22.0git \
+     /usr/local/llvm-obfuscator/lib/
 COPY plugins/linux-x86_64/lib/clang/22 /usr/local/llvm-obfuscator/lib/clang/22
 
-# Copy OLLVM wrapper scripts (these apply OLLVM passes via opt tool)
-COPY scripts/clang-obfuscate /usr/local/llvm-obfuscator/bin/clang-obfuscate
-COPY scripts/clang++-obfuscate /usr/local/llvm-obfuscator/bin/clang++-obfuscate
-# Create symlink for clang (wrapper scripts reference clang.real)
-RUN ln -sf /usr/local/llvm-obfuscator/bin/clang.real /usr/local/llvm-obfuscator/bin/clang
+# Copy OLLVM wrapper scripts
+COPY scripts/clang-obfuscate scripts/clang++-obfuscate \
+     /usr/local/llvm-obfuscator/bin/
 
-# Make binaries executable
-RUN chmod +x /usr/local/llvm-obfuscator/bin/clang.real
-RUN chmod +x /usr/local/llvm-obfuscator/bin/clang++
-RUN chmod +x /usr/local/llvm-obfuscator/bin/opt
-RUN chmod +x /usr/local/llvm-obfuscator/bin/llvm-dis
-RUN chmod +x /usr/local/llvm-obfuscator/bin/mlir-opt
-RUN chmod +x /usr/local/llvm-obfuscator/bin/mlir-translate
-RUN chmod +x /usr/local/llvm-obfuscator/bin/clangir
-RUN chmod +x /usr/local/llvm-obfuscator/bin/lld
-RUN chmod +x /usr/local/llvm-obfuscator/bin/clang-obfuscate
-RUN chmod +x /usr/local/llvm-obfuscator/bin/clang++-obfuscate
+# Copy application code last (changes most frequently, so this layer invalidates less)
+COPY api/ core/ cli/ scripts/ *.py *.txt ./
 
-# Create lld symlinks (ld.lld for ELF, ld64.lld for Mach-O)
-RUN ln -sf /usr/local/llvm-obfuscator/bin/lld /usr/local/llvm-obfuscator/bin/ld.lld
-RUN ln -sf /usr/local/llvm-obfuscator/bin/lld /usr/local/llvm-obfuscator/bin/ld64.lld
+# Rename clang, make binaries executable, and create symlinks in one layer
+RUN mv /usr/local/llvm-obfuscator/bin/clang /usr/local/llvm-obfuscator/bin/clang.real && \
+    chmod +x /usr/local/llvm-obfuscator/bin/* && \
+    ln -sf /usr/local/llvm-obfuscator/bin/clang.real /usr/local/llvm-obfuscator/bin/clang && \
+    ln -sf /usr/local/llvm-obfuscator/bin/lld /usr/local/llvm-obfuscator/bin/ld.lld && \
+    ln -sf /usr/local/llvm-obfuscator/bin/lld /usr/local/llvm-obfuscator/bin/ld64.lld
 
 # Note: UPX compression removed - binaries from GCP are uncompressed for faster execution
 # Fix incomplete bundled headers by copying ALL missing files from system clang
@@ -124,14 +109,12 @@ COPY plugins/macos-sdk/MacOSX15.4.sdk /opt/MacOSX.sdk
 ENV PATH="/usr/local/llvm-obfuscator/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/usr/local/llvm-obfuscator/lib:${LD_LIBRARY_PATH}"
 
-# Verify custom LLVM 22 toolchain installation
-RUN /usr/local/llvm-obfuscator/bin/clang --version || echo "Custom clang installed"
-RUN /usr/local/llvm-obfuscator/bin/opt --version || echo "Custom opt installed"
-RUN /usr/local/llvm-obfuscator/bin/mlir-opt --version || echo "Custom mlir-opt installed"
-RUN /usr/local/llvm-obfuscator/bin/mlir-translate --version || echo "Custom mlir-translate installed"
-
-# Create reports directory
-RUN mkdir -p /app/reports
+# Verify custom LLVM 22 toolchain installation and create reports directory
+RUN /usr/local/llvm-obfuscator/bin/clang --version >/dev/null 2>&1 || echo "Custom clang installed" && \
+    /usr/local/llvm-obfuscator/bin/opt --version >/dev/null 2>&1 || echo "Custom opt installed" && \
+    /usr/local/llvm-obfuscator/bin/mlir-opt --version >/dev/null 2>&1 || echo "Custom mlir-opt installed" && \
+    /usr/local/llvm-obfuscator/bin/mlir-translate --version >/dev/null 2>&1 || echo "Custom mlir-translate installed" && \
+    mkdir -p /app/reports
 
 EXPOSE 8000
 
