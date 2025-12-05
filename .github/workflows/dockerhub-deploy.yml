@@ -5,6 +5,10 @@ on:
     branches: [ main, develop ]
     tags: [ 'v*' ]
 
+concurrency:
+  group: build-and-push-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository }}
