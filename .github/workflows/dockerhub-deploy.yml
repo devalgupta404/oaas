@@ -96,22 +96,14 @@ jobs:
         ls -la cmd/llvm-obfuscator/plugins/macos-sdk/
 
     - name: Upload LLVM binaries as artifact
-      if: steps.download-binaries.outcome == 'success'
+      if: steps.download-artifact.outcome != 'success' && steps.download-binaries.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: llvm-binaries-linux-x86_64
         path: cmd/llvm-obfuscator/plugins/linux-x86_64
         retention-days: 30
         if-no-files-found: error
-
-    - name: Upload LLVM binaries as artifact
-      if: steps.download-binaries.outcome == 'success'
-      uses: actions/upload-artifact@v4
-      with:
-        name: llvm-binaries-linux-x86_64
-        path: cmd/llvm-obfuscator/plugins/linux-x86_64
-        retention-days: 30
-        if-no-files-found: error
+        overwrite: true
 
     - name: Verify binaries are present (REQUIRED)
       run: |
