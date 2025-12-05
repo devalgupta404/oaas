@@ -14,11 +14,41 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from .config import ObfuscationConfig, Platform
+from .config import ObfuscationConfig, Platform, Architecture
 from .exceptions import ObfuscationError
 from .utils import create_logger, run_command, detect_project_compile_flags, ensure_generated_headers_exist
 
 logger = create_logger(__name__)
+
+
+def _get_cross_compile_flags(platform: Platform, arch: Architecture) -> list:
+    """Get cross-compilation flags including target triple and sysroot.
+
+    Returns list of flags like ["--target=x86_64-apple-darwin", "--sysroot=/opt/MacOSX.sdk"]
+    """
+    # Target triple mapping
+    target_triples = {
+        (Platform.LINUX, Architecture.X86_64): "x86_64-unknown-linux-gnu",
+        (Platform.LINUX, Architecture.ARM64): "aarch64-unknown-linux-gnu",
+        (Platform.LINUX, Architecture.X86): "i686-unknown-linux-gnu",
+        (Platform.WINDOWS, Architecture.X86_64): "x86_64-w64-mingw32",
+        (Platform.WINDOWS, Architecture.ARM64): "aarch64-w64-mingw32",
+        (Platform.WINDOWS, Architecture.X86): "i686-w64-mingw32",
+        (Platform.MACOS, Architecture.X86_64): "x86_64-apple-darwin",
+        (Platform.MACOS, Architecture.ARM64): "aarch64-apple-darwin",
+        (Platform.DARWIN, Architecture.X86_64): "x86_64-apple-darwin",
+        (Platform.DARWIN, Architecture.ARM64): "aarch64-apple-darwin",
+    }
+
+    triple = target_triples.get((platform, arch), "x86_64-unknown-linux-gnu")
+    flags = [f"--target={triple}"]
+
+    # macOS requires sysroot for cross-compilation
+    if platform in [Platform.MACOS, Platform.DARWIN]:
+        flags.append("--sysroot=/opt/MacOSX.sdk")
+        logger.info(f"Using macOS SDK sysroot: /opt/MacOSX.sdk")
+
+    return flags
 
 
 def compile_multifile_ir_workflow(
@@ -630,9 +660,9 @@ def compile_multifile_ir_workflow(
         if resource_dir_flags:
             ir_cmd.extend(resource_dir_flags)
         
-        # Add platform target if Windows
-        if config.platform == Platform.WINDOWS:
-            ir_cmd.extend(["--target=x86_64-w64-mingw32"])
+        # Add cross-compilation flags (target triple + sysroot for macOS)
+        cross_compile_flags = _get_cross_compile_flags(config.platform, config.architecture)
+        ir_cmd.extend(cross_compile_flags)
         
         # Use per-file flags if available, otherwise use generic flags
         if per_file_flags:
@@ -803,10 +833,11 @@ def compile_multifile_ir_workflow(
         
         if resource_dir_flags:
             command.extend(resource_dir_flags)
-        
-        if config.platform == Platform.WINDOWS:
-            command.extend(["--target=x86_64-w64-mingw32"])
-        
+
+        # Add cross-compilation flags (target triple + sysroot for macOS)
+        cross_compile_flags = _get_cross_compile_flags(config.platform, config.architecture)
+        command.extend(cross_compile_flags)
+
         logger.info("Compiling unified IR to binary (without OLLVM passes)")
         run_command(command, cwd=destination_abs.parent)
         
@@ -882,9 +913,10 @@ def compile_multifile_ir_workflow(
     ]
     
     final_cmd = [compiler, str(obfuscated_bc), "-o", str(destination_abs)] + final_flags
-    
-    if config.platform == Platform.WINDOWS:
-        final_cmd.extend(["--target=x86_64-w64-mingw32"])
+
+    # Add cross-compilation flags (target triple + sysroot for macOS)
+    cross_compile_flags = _get_cross_compile_flags(config.platform, config.architecture)
+    final_cmd.extend(cross_compile_flags)
     
     logger.info(f"  Input: {obfuscated_bc.name}")
     logger.info(f"  Output: {destination_abs.name}")

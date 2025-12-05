@@ -190,6 +190,23 @@ class LLVMObfuscator:
         self.logger.warning(f"Unknown platform/arch combination: {platform.value}/{arch.value}, defaulting to x86_64-unknown-linux-gnu")
         return "x86_64-unknown-linux-gnu"
 
+    def _get_cross_compile_flags(self, platform: Platform, arch: Architecture) -> list:
+        """Get all cross-compilation flags including target triple and sysroot.
+
+        Returns list of flags like ["--target=x86_64-apple-darwin", "--sysroot=/opt/MacOSX.sdk"]
+        """
+        flags = []
+        target_triple = self._get_target_triple(platform, arch)
+        flags.append(f"--target={target_triple}")
+
+        # macOS requires sysroot for cross-compilation
+        if platform in [Platform.MACOS, Platform.DARWIN]:
+            macos_sdk_path = "/opt/MacOSX.sdk"
+            flags.append(f"--sysroot={macos_sdk_path}")
+            self.logger.info(f"Using macOS SDK sysroot: {macos_sdk_path}")
+
+        return flags
+
     def obfuscate(self, source_file: Path, config: ObfuscationConfig, job_id: Optional[str] = None) -> Dict:
         if not source_file.exists():
             raise FileNotFoundError(f"Source file not found: {source_file}")
@@ -798,9 +815,9 @@ class LLVMObfuscator:
             resource_dir_flags = self._get_resource_dir_flag(compiler)
             if resource_dir_flags:
                 ir_cmd.extend(resource_dir_flags)
-            # Add target triple for cross-compilation
-            target_triple = self._get_target_triple(config.platform, config.architecture)
-            ir_cmd.extend([f"--target={target_triple}"])
+            # Add cross-compilation flags (target triple + sysroot for macOS)
+            cross_compile_flags = self._get_cross_compile_flags(config.platform, config.architecture)
+            ir_cmd.extend(cross_compile_flags)
             run_command(ir_cmd, cwd=source_abs.parent)
 
             # 1b: Convert LLVM IR to MLIR
@@ -904,9 +921,9 @@ class LLVMObfuscator:
                 resource_dir_flags = self._get_resource_dir_flag(compiler)
                 if resource_dir_flags:
                     ir_cmd.extend(resource_dir_flags)
-                # Add target triple for cross-compilation
-                target_triple = self._get_target_triple(config.platform, config.architecture)
-                ir_cmd.extend([f"--target={target_triple}"])
+                # Add cross-compilation flags (target triple + sysroot for macOS)
+                cross_compile_flags = self._get_cross_compile_flags(config.platform, config.architecture)
+                ir_cmd.extend(cross_compile_flags)
                 run_command(ir_cmd, cwd=source_abs.parent)
                 current_input = ir_file
 
@@ -975,9 +992,9 @@ class LLVMObfuscator:
         # Stage 3: Compile to binary
         self.logger.info("Compiling final IR to binary...")
         final_cmd = [compiler, str(current_input), "-o", str(destination_abs)] + compiler_flags
-        # Add target triple for cross-compilation
-        target_triple = self._get_target_triple(config.platform, config.architecture)
-        final_cmd.extend([f"--target={target_triple}"])
+        # Add cross-compilation flags (target triple + sysroot for macOS)
+        cross_compile_flags = self._get_cross_compile_flags(config.platform, config.architecture)
+        final_cmd.extend(cross_compile_flags)
         run_command(final_cmd, cwd=source_abs.parent)
 
         # ✅ NEW: Analyze obfuscated IR before cleanup
@@ -1069,9 +1086,9 @@ class LLVMObfuscator:
         # 1a: Compile source to ClangIR MLIR (CIR dialect)
         cir_mlir_file = destination_abs.parent / f"{destination_abs.stem}_cir.mlir"
         clangir_cmd = ["clangir", str(current_input), "-emit-cir", "-o", str(cir_mlir_file)]
-        # Add target triple for cross-compilation
-        target_triple = self._get_target_triple(config.platform, config.architecture)
-        clangir_cmd.extend([f"--target={target_triple}"])
+        # Add cross-compilation flags (target triple + sysroot for macOS)
+        cross_compile_flags = self._get_cross_compile_flags(config.platform, config.architecture)
+        clangir_cmd.extend(cross_compile_flags)
         run_command(clangir_cmd, cwd=source_abs.parent)
 
         # 1b: Lower ClangIR to LLVM dialect MLIR
@@ -1180,9 +1197,9 @@ class LLVMObfuscator:
         # Stage 5: Compile to binary
         self.logger.info("Compiling final IR to binary...")
         final_cmd = [compiler, str(current_input), "-o", str(destination_abs)] + compiler_flags
-        # Add target triple for cross-compilation
-        target_triple = self._get_target_triple(config.platform, config.architecture)
-        final_cmd.extend([f"--target={target_triple}"])
+        # Add cross-compilation flags (target triple + sysroot for macOS)
+        cross_compile_flags = self._get_cross_compile_flags(config.platform, config.architecture)
+        final_cmd.extend(cross_compile_flags)
         run_command(final_cmd, cwd=source_abs.parent)
 
         # Cleanup intermediate files
@@ -1383,9 +1400,9 @@ class LLVMObfuscator:
                 self.logger.warning("⚠️  Using system compiler for baseline - this may cause baseline/obfuscated comparison issues")
                 self.logger.warning("    Consider installing LLVM 22 at /usr/local/llvm-obfuscator/ for better accuracy")
 
-            # Add target triple for cross-compilation
-            target_triple = self._get_target_triple(config.platform, config.architecture)
-            compile_flags.append(f"--target={target_triple}")
+            # Add cross-compilation flags (target triple + sysroot for macOS)
+            cross_compile_flags = self._get_cross_compile_flags(config.platform, config.architecture)
+            compile_flags.extend(cross_compile_flags)
 
             # Add include paths for common directories in the project
             include_dirs = set()
