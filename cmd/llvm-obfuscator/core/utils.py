@@ -41,13 +41,64 @@ def run_command(command: List[str], cwd: Optional[Path] = None, env: Optional[Di
     return process.returncode, stdout, stderr
 
 
+def find_tool(tool_name: str) -> Optional[str]:
+    """Find a tool in PATH or bundled locations."""
+    # First check PATH
+    tool_path = shutil.which(tool_name)
+    if tool_path:
+        return tool_path
+    
+    # Check bundled locations (plugins directory)
+    import platform as py_platform
+    system = py_platform.system().lower()
+    machine = py_platform.machine().lower()
+    
+    # Normalize architecture
+    if machine in ['x86_64', 'amd64']:
+        arch = 'x86_64'
+    elif machine in ['arm64', 'aarch64']:
+        arch = 'arm64'
+    else:
+        arch = machine
+    
+    # Check bundled tools in plugins directory
+    bundled_paths = [
+        # Relative to core module
+        Path(__file__).parent.parent / "plugins" / f"{system}-{arch}" / tool_name,
+        # Relative to cmd/llvm-obfuscator
+        Path(__file__).parent.parent.parent / "plugins" / f"{system}-{arch}" / tool_name,
+        # Docker installation
+        Path(f"/usr/local/llvm-obfuscator/bin/{tool_name}"),
+    ]
+    
+    for path in bundled_paths:
+        if path.exists() and path.is_file():
+            return str(path)
+    
+    return None
+
+
 def tool_exists(tool_name: str) -> bool:
-    return shutil.which(tool_name) is not None
+    """Check if tool exists in PATH or bundled locations."""
+    return find_tool(tool_name) is not None
 
 
 def require_tool(tool_name: str) -> None:
-    if not tool_exists(tool_name):
-        raise ToolchainNotFoundError(f"Required tool '{tool_name}' not found in PATH")
+    """Require a tool to exist, checking both PATH and bundled locations."""
+    tool_path = find_tool(tool_name)
+    if not tool_path:
+        # Provide helpful error message
+        bundled_locations = [
+            f"plugins/{platform.system().lower()}-{platform.machine().lower()}/{tool_name}",
+            f"/usr/local/llvm-obfuscator/bin/{tool_name}",
+        ]
+        locations_msg = "\n  - ".join(bundled_locations)
+        raise ToolchainNotFoundError(
+            f"Required tool '{tool_name}' not found in PATH or bundled locations.\n"
+            f"Please ensure '{tool_name}' is installed and in PATH, or available at:\n"
+            f"  - {locations_msg}\n"
+            f"Current working directory: {os.getcwd()}"
+        )
 
 
 def get_timestamp() -> str:
