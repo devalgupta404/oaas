@@ -24,6 +24,7 @@ export default defineConfig({
     port: 4666,
     host: '0.0.0.0',
     strictPort: true,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://backend:8000',
