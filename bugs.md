@@ -47,3 +47,25 @@
 
 ### Baseline Compilation Fails for Windows
 - **Note**: Baseline comparison unavailable for Windows platform
+
+### Layer 3 (OLLVM Passes) Crashes with String Constants [CRITICAL]
+- **Status**: Confirmed Bug
+- **Error**: `constant expression type mismatch: got type '[15 x i8]' but expected '[16 x i8]'`
+- **Reproduction**: Enable Layer 3 with any OLLVM pass on Fibonacci Calculator demo
+- **Cause**: OLLVM plugin has a bug with string constant type handling in LLVM IR
+- **Impact**: Layer 3 is currently broken ("cooked") for programs with string constants
+- **Workaround**: Use Layer 2 (String Encryption) instead, which works correctly
+
+### LLVM Remarks Show "Missed" for Everything [NOT A BUG]
+- **Status**: Expected Behavior
+- **Question**: "Is it a bug that remarks show 'Missed' for everything?"
+- **Answer**: NO - This is normal LLVM behavior
+- **Explanation**:
+  - `!Missed` remarks show optimizations that were *considered* but *not applied*
+  - Common reasons in our case:
+    - `NeverInline` with `optnone attribute` - functions marked to not inline
+    - `NoDefinition` for `printf` - external function, definition unavailable
+    - `FastISelFailure` - Fast instruction selection couldn't handle certain calls
+  - The remarks also include `!Analysis` entries showing instruction counts, stack sizes, etc.
+  - This is valuable information for understanding compilation behavior
+- **Note**: When Layer 3 works, you would see `!Passed` remarks for applied obfuscation passes
