@@ -554,19 +554,27 @@ class LLVMObfuscator:
         if not config.advanced.remarks.enabled:
             return
 
-        # Skip remarks for Windows/macOS + LTO: LLD doesn't support -plugin-opt=opt-remarks-*
-        # for MinGW targets (Windows) or ld64.lld (macOS)
+        # Skip remarks for macOS: ld64.lld doesn't support opt-remarks options at all
+        # Skip remarks for Windows + LTO: LLD MinGW driver doesn't support opt-remarks with LTO
         # Note: ARM64 + LTO crash was fixed in LLVM 22 with updated binaries (Dec 2025)
-        all_flags = command + (compiler_flags or [])
-        has_lto = any("-flto" in flag for flag in all_flags)
         is_windows_cross = config.platform == Platform.WINDOWS
         is_macos_cross = config.platform == Platform.MACOS
 
-        if has_lto and (is_windows_cross or is_macos_cross):
-            platform_name = "Windows" if is_windows_cross else "macOS"
+        # macOS: ld64.lld doesn't support remarks at all
+        if is_macos_cross:
             self.logger.warning(
-                f"LLVM remarks disabled for {platform_name} cross-compilation with LTO "
-                "(LLD doesn't support opt-remarks plugin options)"
+                "LLVM remarks disabled for macOS cross-compilation "
+                "(ld64.lld doesn't support opt-remarks options)"
+            )
+            return
+
+        # Windows + LTO: LLD MinGW driver doesn't support remarks with LTO
+        all_flags = command + (compiler_flags or [])
+        has_lto = any("-flto" in flag for flag in all_flags)
+        if has_lto and is_windows_cross:
+            self.logger.warning(
+                "LLVM remarks disabled for Windows cross-compilation with LTO "
+                "(LLD doesn't support opt-remarks plugin options for MinGW)"
             )
             return
         
