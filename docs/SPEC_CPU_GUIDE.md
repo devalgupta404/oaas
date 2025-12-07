@@ -1,4 +1,4 @@
-# SPEC CPU 2017 Benchmarking Module
+# SPEC CPU 2017 Benchmarking Module - Complete Guide
 
 Local-only benchmarking module for evaluating LLVM obfuscation performance impact using SPEC CPU 2017.
 
@@ -6,14 +6,46 @@ Local-only benchmarking module for evaluating LLVM obfuscation performance impac
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Prerequisites](#prerequisites)
-3. [Module Overview](#module-overview)
-4. [Script Reference](#script-reference)
-5. [Toolchain Configuration](#toolchain-configuration)
-6. [Result Analysis](#result-analysis)
-7. [Advanced Usage](#advanced-usage)
-8. [Troubleshooting](#troubleshooting)
+1. [Overview](#overview)
+2. [Quick Start](#quick-start)
+3. [Prerequisites](#prerequisites)
+4. [Module Structure](#module-structure)
+5. [Script Reference](#script-reference)
+6. [Toolchain Configuration](#toolchain-configuration)
+7. [Result Analysis](#result-analysis)
+8. [Advanced Usage](#advanced-usage)
+9. [Troubleshooting](#troubleshooting)
+10. [Technical Specification](#technical-specification)
+
+---
+
+## Overview
+
+The SPEC CPU module provides local-only benchmarking capabilities for evaluating LLVM obfuscation performance impact using SPEC CPU 2017 benchmarks. This module is **never executed in CI/CD** and is designed for detailed performance analysis on development machines.
+
+### Key Design Principles
+
+#### 1. Local-Only Execution
+- Module is **never integrated into CI/CD pipelines**
+- Designed for manual execution on development/testing machines
+- All results are stored locally in `spec_cpu/results/`
+
+#### 2. Toolchain Rules
+
+**Priority-Based Fallback Chain:**
+```
+1. Custom Clang (plugins/clang and plugins/clang++)
+   - For obfuscated builds: REQUIRED
+   - For baseline builds: OPTIONAL (but preferred)
+
+2. System GCC/G++ (fallback)
+   - For baseline builds: ALLOWED with -O3 flag
+   - For obfuscated builds: NOT ALLOWED (fail with clear error)
+
+3. Clang-like Flags on GCC:
+   - When GCC is used for baseline: Apply Clang-compatible flags
+   - Ensure semantic compatibility between baseline and obfuscated
+```
 
 ---
 
@@ -97,36 +129,41 @@ If not present, only baseline builds will be possible.
 
 ---
 
-## Module Overview
+## Module Structure
 
-### Directory Structure
+### Directory Tree
 
 ```
 spec_cpu/
-├── configs/
-│   └── linux-x86_64.cfg           SPEC CPU compiler configuration
-├── scripts/
-│   ├── configure_spec_cpu.sh       Environment setup and validation
-│   ├── build_spec_targets.sh       Build baseline and obfuscated binaries
-│   ├── run_spec_speed.sh           Execute speed benchmarks
-│   ├── run_spec_rate.sh            Execute rate benchmarks
-│   ├── collect_spec_metrics.py     Extract and aggregate results
-│   └── compare_spec_results.py     Generate comparison reports
-├── results/
-│   ├── baseline/
-│   │   └── <timestamp>/            Baseline run results
-│   │       ├── speed/              SPECspeed results
-│   │       └── rate/               SPECrate results
-│   ├── obfuscated/
-│   │   └── <config>/
-│   │       └── <timestamp>/        Obfuscated run results
-│   │           ├── speed/
-│   │           └── rate/
-│   └── comparisons/
-│       └── <config>/
-│           └── <timestamp>/        Comparison reports
-├── SPECIFICATION.md                Technical specification
-└── README.md                       This file
+|
++-- SPECIFICATION.md           (Detailed technical specification)
++-- STRUCTURE.md               (Visual reference)
++-- README.md                  (User guide)
+|
++-- configs/
+|   +-- linux-x86_64.cfg       (SPEC CPU compiler configuration)
+|
++-- scripts/
+|   +-- configure_spec_cpu.sh   (Environment setup and validation)
+|   +-- build_spec_targets.sh   (Build baseline and obfuscated binaries)
+|   +-- run_spec_speed.sh       (Execute speed benchmarks)
+|   +-- run_spec_rate.sh        (Execute rate benchmarks)
+|   +-- collect_spec_metrics.py (Extract and aggregate results)
+|   +-- compare_spec_results.py (Generate comparison reports)
+|
++-- results/
+    +-- baseline/
+    |   +-- <timestamp>/            (Baseline run results)
+    |       +-- speed/              (SPECspeed results)
+    |       +-- rate/               (SPECrate results)
+    +-- obfuscated/
+    |   +-- <config>/
+    |       +-- <timestamp>/        (Obfuscated run results)
+    |           +-- speed/
+    |           +-- rate/
+    +-- comparisons/
+        +-- <config>/
+            +-- <timestamp>/        (Comparison reports)
 ```
 
 ### Benchmark Suites
@@ -296,13 +333,9 @@ Execute SPECrate (multi-threaded) benchmarks.
 ./scripts/run_spec_rate.sh all "" 4
 ```
 
-**Exit Codes**: Same as `run_spec_speed.sh`
-
-**Output**: Similar to speed runner, but in `rate/` subdirectory
-
 **Notes**:
 - Script validates `num_copies` is a positive integer
-- Warns if copies > 4 × CPU count (potential system overload)
+- Warns if copies > 4 x CPU count (potential system overload)
 - Recommended: num_copies = CPU count for realistic throughput measurement
 
 ---
@@ -416,9 +449,9 @@ The module uses a hierarchical compiler selection strategy:
 ```
 Baseline builds:
   1. Try custom Clang from plugins/
-     └─ If available: use custom Clang (preferred)
+     - If available: use custom Clang (preferred)
   2. Fall back to system GCC/G++
-     └─ If available: use with enforced -O3 flag
+     - If available: use with enforced -O3 flag
   3. Fail if neither available
 
 Obfuscated builds:
@@ -455,6 +488,35 @@ g++ --version
 gfortran --version  # (Optional, for Fortran benchmarks)
 ```
 
+### Configuration File: `linux-x86_64.cfg`
+
+**Purpose**: SPEC CPU 2017 compiler configuration for Linux x86_64
+
+**Key Sections**:
+```
+[system]
+label = LLVM Obfuscator SPEC CPU 2017
+
+[compiler_setup]
+cc = <path_to_clang_or_gcc>
+cxx = <path_to_clang++_or_g++>
+fc = <path_to_gfortran>
+
+[default_pcp]
+SPEC = <SPEC_CPU_2017_ROOT>
+EXTRA_FLAGS = -m64
+
+[baseline]
+CC = ${cc}
+CXXFLAGS = -O3 ...
+CFLAGS = -O3 ...
+
+[obfuscation]
+CC_OBF = ${clang_custom}
+CXXFLAGS_OBF = -O3 <obfuscation_flags>
+CFLAGS_OBF = -O3 <obfuscation_flags>
+```
+
 ---
 
 ## Result Analysis
@@ -470,12 +532,12 @@ gfortran --version  # (Optional, for Fortran benchmarks)
 #### Performance Impact (%)
 
 ```
-Percentage Change = (Obfuscated Score - Baseline Score) / Baseline Score × 100
+Percentage Change = (Obfuscated Score - Baseline Score) / Baseline Score x 100
 ```
 
 - **Negative**: Performance degradation from obfuscation overhead
 - **Positive**: Performance improvement (rare, usually due to cache effects)
-- **Threshold**: ±5% considered neutral
+- **Threshold**: +/-5% considered neutral
 
 #### Regressions vs Improvements
 
@@ -487,12 +549,12 @@ Percentage Change = (Obfuscated Score - Baseline Score) / Baseline Score × 100
 
 ```html
 Performance Summary:
-├─ Total Benchmarks: 23
-├─ Valid Comparisons: 23
-├─ Regressions: 5
-├─ Improvements: 1
-├─ Neutral: 17
-└─ Average Impact: -3.2%
++-- Total Benchmarks: 23
++-- Valid Comparisons: 23
++-- Regressions: 5
++-- Improvements: 1
++-- Neutral: 17
++-- Average Impact: -3.2%
 ```
 
 This indicates:
@@ -660,6 +722,82 @@ chmod +x spec_cpu/scripts/*.py
 
 # Verify
 ls -l spec_cpu/scripts/
+
+```
+
+---
+
+## Technical Specification
+
+### Result Organization
+
+#### Baseline Results (`results/baseline/<timestamp>/`)
+- Single timestamp per baseline run
+- Subdirectories: `speed/` and `rate/`
+- Contains raw SPEC CPU results
+
+#### Obfuscated Results (`results/obfuscated/<config_name>/<timestamp>/`)
+- Organized by obfuscation configuration name
+- Multiple timestamps for different obfuscation runs
+- Subdirectories: `speed/` and `rate/`
+- Tracks different obfuscation settings separately
+
+#### Comparison Results (`results/comparisons/<config_name>/<timestamp>/`)
+- Organized by obfuscation configuration name
+- Contains side-by-side comparison reports
+- Metrics: performance impact, binary size ratio, obfuscation overhead
+
+### Execution Workflows
+
+#### Workflow 1: Baseline Benchmark
+```
+1. configure_spec_cpu.sh
+   -> Validate SPEC CPU installation
+      Detect compiler toolchain
+      Setup environment
+
+2. build_spec_targets.sh baseline
+   -> Compile benchmarks with baseline flags (-O3)
+      Use custom clang OR gcc
+
+3. run_spec_speed.sh baseline
+   -> Execute SPECspeed tests
+      Store in: results/baseline/<timestamp>/speed/
+
+4. run_spec_rate.sh baseline
+   -> Execute SPECrate tests
+      Store in: results/baseline/<timestamp>/rate/
+
+5. collect_spec_metrics.py results/baseline/<timestamp>/
+   -> Extract metrics to JSON/CSV
+      Generate summary statistics
+```
+
+#### Workflow 2: Obfuscated Benchmark + Comparison
+```
+1. configure_spec_cpu.sh
+   -> Validate SPEC CPU installation (reuse from baseline)
+
+2. build_spec_targets.sh obfuscated layer1-2
+   -> Compile with obfuscation flags
+      MUST use custom clang from plugins/
+      Fail if unavailable
+
+3. run_spec_speed.sh obfuscated layer1-2
+   -> Execute SPECspeed tests
+      Store in: results/obfuscated/layer1-2/<timestamp>/speed/
+
+4. run_spec_rate.sh obfuscated layer1-2
+   -> Execute SPECrate tests
+      Store in: results/obfuscated/layer1-2/<timestamp>/rate/
+
+5. collect_spec_metrics.py results/obfuscated/layer1-2/<timestamp>/
+   -> Extract metrics to JSON/CSV
+
+6. compare_spec_results.py results/baseline/<latest>/ results/obfuscated/layer1-2/<latest>/
+   -> Generate comparison report
+      Store in: results/comparisons/layer1-2/<timestamp>/
+      Create HTML, JSON, and CSV outputs
 ```
 
 ---
@@ -681,25 +819,29 @@ ls -l spec_cpu/scripts/
 
 ---
 
-## Support and Reporting Issues
+## Integration Notes
 
-For issues or questions:
+### Compatible With:
+- Phoronix Test Suite (`phoronix/`) - Independent execution model, separate results directories
+- LLVM Obfuscator (`cmd/llvm-obfuscator/`) - Uses plugins from `cmd/llvm-obfuscator/plugins/`
+- Existing Metrics - Can use same SPEC CPU binaries for analysis
 
-1. Check the troubleshooting section above
-2. Review log files: `spec_cpu/results/*/*.log`
-3. Verify prerequisites are met (SPEC installation, compilers, disk space)
-4. Run `configure_spec_cpu.sh` in verbose mode for diagnostics
+### NOT Integrated With:
+- CI/CD Pipelines (intentionally excluded)
+- GitHub Actions workflows
+- Automated testing systems
 
 ---
 
-## Notes
+## Important Notes
 
 - **Local-Only**: This module is never committed to CI/CD. Results are not versioned.
 - **Long-Running**: Full benchmark suite can take 2-6 hours depending on hardware
 - **Resource Intensive**: Rate benchmarks with high copy counts can stress system resources
 - **Determinism**: Results vary based on system load. Multiple runs recommended.
 - **Configuration**: Modify `configs/linux-x86_64.cfg` only for advanced tuning
+- **Timestamp Format**: Use `YYYY-MM-DDTHH:MM:SSZ` (ISO 8601) for consistency
 
 ---
 
-Last Updated: December 6, 2025
+Last Updated: December 7, 2025
