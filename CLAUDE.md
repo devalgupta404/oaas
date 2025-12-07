@@ -4,8 +4,10 @@
 
 1. OLLVM code is in `../llvm-project` under `ollvm-integration` branch → LLVM 22
 2. Deployment is at https://oaas.pointblank.club
-3. We always test by deploying to server using Docker and testing with Playwright end-to-end
-4. Our original repo ran out of CI credits, now we push to a fork : https://github.com/slashexx/oaas
+3. NEVER EVER CO AUTHOR CLAUDE OR MENTION CLAUDE IN ANY PR OR COMMITS
+4. ALWAYS WRITE .md FILES TO /docs DIR AND ONLY CREATE NEW .md file IF IT CANNOT BE ADDED / MERGED IN AN EXISTING DOC 
+5. Our original repo ran out of CI credits, now we push to a fork : https://github.com/slashexx/oaas
+
 
 ## Production Server
 
