@@ -120,7 +120,7 @@ class BinaryPipelineWorker:
             return False
 
         # Find run_ghidra_lifter.sh (script is at root/binary_obfuscation_pipeline/...)
-        script_path = Path(__file__).parent.parent.parent.parent / "binary_obfuscation_pipeline" / "mcsema_impl" / "ghidra_lifter" / "run_ghidra_lifter.sh"
+        script_path = Path("/app/binary_obfuscation_pipeline/mcsema_impl/ghidra_lifter/run_ghidra_lifter.sh")
 
         if not script_path.exists():
             self.logger.log(f"run_ghidra_lifter.sh not found at {script_path}", level="ERROR")
@@ -137,13 +137,12 @@ class BinaryPipelineWorker:
 
     def step2_mcsema_lifting(self) -> bool:
         """Step 2: Lift CFG to LLVM IR using McSema."""
-        cfg_file = self.cfg_dir / "program.cfg"
-
+        cfg_.py
         if not cfg_file.exists():
             self.logger.log("CFG file not found", level="ERROR")
             return False
 
-        script_path = Path(__file__).parent.parent.parent.parent / "binary_obfuscation_pipeline" / "mcsema_impl" / "lifter" / "run_lift.sh"
+        script_path = Path("/app/binary_obfuscation_pipeline/mcsema_impl/lifter/run_lift.sh")
 
         if not script_path.exists():
             self.logger.log(f"run_lift.sh not found at {script_path}", level="ERROR")
@@ -166,7 +165,7 @@ class BinaryPipelineWorker:
             self.logger.log("program.bc not found", level="ERROR")
             return False
 
-        script_path = Path(__file__).parent.parent.parent.parent / "binary_obfuscation_pipeline" / "mcsema_impl" / "lifter" / "convert_ir_version.sh"
+        script_path = Path("/app/binary_obfuscation_pipeline/mcsema_impl/lifter/convert_ir_version.sh")
 
         if not script_path.exists():
             self.logger.log(f"convert_ir_version.sh not found at {script_path}", level="ERROR")
@@ -201,7 +200,7 @@ class BinaryPipelineWorker:
         passes_config_file = self.job_dir / "passes_config.json"
         passes_config_file.write_text(json.dumps(self.passes_config, indent=2))
 
-        script_path = Path(__file__).parent.parent.parent.parent / "binary_obfuscation_pipeline" / "mcsema_impl" / "ollvm_stage" / "run_ollvm.sh"
+        script_path = Path("/app/binary_obfuscation_pipeline/mcsema_impl/ollvm_stage/run_ollvm.sh")
 
         if not script_path.exists():
             self.logger.log(f"run_ollvm.sh not found at {script_path}", level="ERROR")
@@ -213,6 +212,7 @@ class BinaryPipelineWorker:
             str(self.obf_dir),
             str(passes_config_file)
         ]
+
 
         success, output = self.run_command(cmd, "OLLVM Pass Application")
         return success and (self.obf_dir / "program_obf.bc").exists()

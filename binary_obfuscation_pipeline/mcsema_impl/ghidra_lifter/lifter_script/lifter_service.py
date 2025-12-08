@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Configuration
-GHIDRA_HOME = os.getenv('GHIDRA_HOME', '/opt/ghidra/ghidra_11.1_PUBLIC')
+GHIDRA_HOME = os.getenv('GHIDRA_HOME', '/opt/ghidra/ghidra_11.4.3_PUBLIC')
 SCRIPT_PATH = '/app/lifter_script'
 REPORTS_DIR = '/app/reports'
 BINARIES_DIR = '/app/binaries'
@@ -122,7 +122,10 @@ class GhidraLifter:
             return result
 
         # Create Ghidra project directory (temporary)
-        with tempfile.TemporaryDirectory(prefix='ghidra_project_') as project_dir:
+        project_root = "/app/ghidra_projects"
+        os.makedirs(project_root, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(prefix='ghidra_project_', dir=project_root) as project_dir:
             project_name = 'binary_analysis'
             analyze_headless = os.path.join(self.ghidra_home, 'support', 'analyzeHeadless')
 
@@ -131,10 +134,10 @@ class GhidraLifter:
                 analyze_headless,
                 project_dir,                    # Project directory
                 project_name,                   # Project name
+                '-import', binary_path,         # Input binary
                 '-scriptPath', SCRIPT_PATH,     # Path to custom scripts
                 '-postScript', 'export_cfg.py', # Script to run after analysis
-                output_cfg_path,                # Output file path
-                binary_path,                    # Input binary
+                output_cfg_path,                # Output file path for script
             ]
 
             logger.info(f"Lifting binary: {binary_path}")
@@ -222,34 +225,28 @@ def health():
 @app.route('/lift', methods=['POST'])
 def lift_binary():
     """
-    Lift a Windows PE binary to McSema CFG.
-
-    Expects:
-    - file: binary file (multipart/form-data)
-
-    Returns:
-    - cfg_file: path to generated .cfg
-    - stats: function/block/edge counts
+    Lift a Windows PE binary to McSema CFG from a file upload.
+    Accepts 'output_cfg_path' in the form data to specify output location.
     """
-
     try:
-        # Check if binary file provided
         if 'file' not in request.files:
             return jsonify({'error': 'No file provided'}), 400
 
         file = request.files['file']
-
         if file.filename == '':
             return jsonify({'error': 'No filename'}), 400
 
-        # Save binary to temp location
+        # Save binary to a shared location inside the container
         binary_path = os.path.join(BINARIES_DIR, file.filename)
         file.save(binary_path)
-
         logger.info(f"Received binary: {file.filename}")
 
-        # Generate output CFG path
-        output_cfg = os.path.join(REPORTS_DIR, file.filename.replace('.exe', '.cfg'))
+        # Prioritize output path from form data; fall back to default if not provided
+        output_cfg = request.form.get('output_cfg_path')
+        if not output_cfg:
+            output_cfg = os.path.join(REPORTS_DIR, file.filename.replace('.exe', '.cfg'))
+        
+        logger.info(f"Output path set to: {output_cfg}")
 
         # Perform lifting
         result = lifter.lift(binary_path, output_cfg)
@@ -280,31 +277,29 @@ def lift_file():
 
     Expects:
     - binary_path: path to binary on shared volume
-    - output_dir: output directory for .cfg
+    - output_cfg_path: optional full path for the output cfg file.
 
     Returns:
     - cfg_file: path to generated .cfg
     - stats: function/block/edge counts
     """
-
     try:
         data = request.get_json()
-
         if not data or 'binary_path' not in data:
             return jsonify({'error': 'Missing binary_path in request'}), 400
 
         binary_path = data['binary_path']
-        output_dir = data.get('output_dir', REPORTS_DIR)
-
-        # Validate binary exists
         if not os.path.exists(binary_path):
             return jsonify({'error': f'Binary not found: {binary_path}'}), 404
 
-        # Generate output CFG path
-        binary_name = os.path.basename(binary_path)
-        output_cfg = os.path.join(output_dir, binary_name.replace('.exe', '.cfg'))
+        # Prioritize full output path from request; fall back to old logic if not provided
+        output_cfg = data.get('output_cfg_path')
+        if not output_cfg:
+            output_dir = data.get('output_dir', REPORTS_DIR)
+            binary_name = os.path.basename(binary_path)
+            output_cfg = os.path.join(output_dir, binary_name.replace('.exe', '.cfg'))
 
-        logger.info(f"Lifting from path: {binary_path}")
+        logger.info(f"Lifting from path: {binary_path} -> {output_cfg}")
 
         # Perform lifting
         result = lifter.lift(binary_path, output_cfg)

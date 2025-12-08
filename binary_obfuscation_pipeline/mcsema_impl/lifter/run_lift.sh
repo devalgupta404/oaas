@@ -1,71 +1,69 @@
-#!/bin/bash
-"""
-Feature #3 Part 1: McSema CFG → LLVM IR Lifting
-
-This script converts a Ghidra-exported .cfg file into LLVM IR using mcsema-lift.
-
-USAGE:
-  ./run_lift.sh program.cfg output_dir
-
-EXAMPLE:
-  ./run_lift.sh ./program.cfg ./lifted_ir/
-  → Outputs: ./lifted_ir/program.bc
-
-CRITICAL WARNINGS ABOUT McSEMA IR:
-==================================
-
-1. McSema IR is LOW-LEVEL MACHINE IR, NOT high-level source IR
-   ► It represents x86-64 semantics directly (registers, memory, flags)
-   ► It is NOT a normal LLVM IR that compilers produce
-   ► Subsequent OLLVM obfuscation passes assume LLVM IR semantics
-   ► McSema IR may violate LLVM IR assumptions → passes may fail
-
-2. Memory Model is FLATTENED
-   ► All memory is represented as a giant state struct (64-bit fields)
-   ► No proper LLVM pointer types or type safety
-   ► Load/store operations are emulated via extractvalue/insertvalue
-   ► Pointer arithmetic is done on raw integers
-   ► This breaks many OLLVM passes designed for structured IR
-
-3. Control Flow is a STATE MACHINE, NOT structured CFG
-   ► Functions do not use normal LLVM basic block structure
-   ► Control flow jumps are implemented via switch statements on state variables
-   ► No proper branch instructions—indirect dispatch via state machine
-   ► CFG analysis tools break on McSema IR
-   ► OLLVM passes expecting structured control flow will fail
-
-4. Ghidra CFG may contain ERRORS or NOISE
-   ► Function detection accuracy: ~90% (vs IDA's ~98%)
-   ► Tail calls may be mis-identified as function calls
-   ► Jump tables may be incorrectly recovered
-   ► Indirect branches cannot be resolved (no data flow)
-   ► If Ghidra CFG is wrong → mcsema-lift produces invalid IR
-
-5. Lifter is NOT SAFE for:
-   ► Exceptions (SEH tables, C++ EH) → breaks control flow
-   ► Recursion → state machine cannot model recursive calls
-   ► Jump tables → Ghidra recovery is unreliable
-   ► C++ code → vtables, name mangling not supported
-   ► Complex indirect calls → cannot resolve targets
-
-6. This pipeline is INTENDED ONLY for simple -O0 C code
-   ► As enforced by Feature #1 source validation
-   ► Optimization breaks CFG recovery
-   ► Complex language features break lifting
-
-WHAT THIS SCRIPT DOES:
-======================
-1. Validates .cfg file exists
-2. Checks mcsema-lift is installed
-3. Runs mcsema-lift with target parameters (Windows x86-64)
-4. Generates LLVM bitcode (.bc file)
-5. Outputs status message for next feature
-
-OUTPUT:
-=======
-- program.bc: LLVM bitcode (low-level machine IR in LLVM 10-17 format)
-- Next: Feature #3 Part 2 (convert_ir_version.sh) upgrades to LLVM 22
-"""
+#!/usr/bin/env bash
+# Feature #3 Part 1: McSema CFG → LLVM IR Lifting
+#
+# This script converts a Ghidra-exported .cfg file into LLVM IR using mcsema-lift.
+#
+# USAGE:
+#   ./run_lift.sh program.cfg output_dir
+#
+# EXAMPLE:
+#   ./run_lift.sh ./program.cfg ./lifted_ir/
+#   → Outputs: ./lifted_ir/program.bc
+#
+# CRITICAL WARNINGS ABOUT McSEMA IR:
+# ==================================
+#
+# 1. McSema IR is LOW-LEVEL MACHINE IR, NOT high-level source IR
+#    ► It represents x86-64 semantics directly (registers, memory, flags)
+#    ► It is NOT a normal LLVM IR that compilers produce
+#    ► Subsequent OLLVM obfuscation passes assume LLVM IR semantics
+#    ► McSema IR may violate LLVM IR assumptions → passes may fail
+#
+# 2. Memory Model is FLATTENED
+#    ► All memory is represented as a giant state struct (64-bit fields)
+#    ► No proper LLVM pointer types or type safety
+#    ► Load/store operations are emulated via extractvalue/insertvalue
+#    ► Pointer arithmetic is done on raw integers
+#    ► This breaks many OLLVM passes designed for structured IR
+#
+# 3. Control Flow is a STATE MACHINE, NOT structured CFG
+#    ► Functions do not use normal LLVM basic block structure
+#    ► Control flow jumps are implemented via switch statements on state variables
+#    ► No proper branch instructions—indirect dispatch via state machine
+#    ► CFG analysis tools break on McSema IR
+#    ► OLLVM passes expecting structured control flow will fail
+#
+# 4. Ghidra CFG may contain ERRORS or NOISE
+#    ► Function detection accuracy: ~90% (vs IDA's ~98%)
+#    ► Tail calls may be mis-identified as function calls
+#    ► Jump tables may be incorrectly recovered
+#    ► Indirect branches cannot be resolved (no data flow)
+#    ► If Ghidra CFG is wrong → mcsema-lift produces invalid IR
+#
+# 5. Lifter is NOT SAFE for:
+#    ► Exceptions (SEH tables, C++ EH) → breaks control flow
+#    ► Recursion → state machine cannot model recursive calls
+#    ► Jump tables → Ghidra recovery is unreliable
+#    ► C++ code → vtables, name mangling not supported
+#    ► Complex indirect calls → cannot resolve targets
+#
+# 6. This pipeline is INTENDED ONLY for simple -O0 C code
+#    ► As enforced by Feature #1 source validation
+#    ► Optimization breaks CFG recovery
+#    ► Complex language features break lifting
+#
+# WHAT THIS SCRIPT DOES:
+# ======================
+# 1. Validates .cfg file exists
+# 2. Checks mcsema-lift is installed
+# 3. Runs mcsema-lift with target parameters (Windows x86-64)
+# 4. Generates LLVM bitcode (.bc file)
+# 5. Outputs status message for next feature
+#
+# OUTPUT:
+# =======
+# - program.bc: LLVM bitcode (low-level machine IR in LLVM 10-17 format)
+# - Next: Feature #3 Part 2 (convert_ir_version.sh) upgrades to LLVM 22
 
 set -e
 

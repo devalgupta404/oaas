@@ -1,96 +1,94 @@
-#!/bin/bash
-"""
-Feature #3 Part 2: LLVM IR Version Upgrade to LLVM 22
-
-This script upgrades McSema-produced LLVM IR from LLVM 10-17 to LLVM 22.
-
-WHY UPGRADE?
-============
-- McSema lifter produces LLVM 10-17 bitcode (depends on mcsema-lift version)
-- Our OLLVM implementation is built on LLVM 22
-- Bitcode format is version-specific and not forward-compatible
-- LLVM 22 tools cannot process older bitcode versions
-- Auto-upgrade is necessary before applying OLLVM passes
-
-USAGE:
-  ./convert_ir_version.sh input.bc output_dir
-
-EXAMPLE:
-  ./convert_ir_version.sh ./program.bc ./llvm22_ir/
-  → Outputs: ./llvm22_ir/program_llvm22.bc
-
-CRITICAL WARNINGS:
-==================
-
-1. AUTO-UPGRADE HANDLES ~95% OF CASES
-   ► Remaining 5% may break silently or produce invalid IR
-   ► No guarantee of semantic equivalence after upgrade
-   ► Advanced IR features may degrade or disappear
-
-2. LLVM METADATA MAY BE LOST
-   ► Debug info (line numbers, variable names) often corrupted
-   ► Custom metadata may be stripped
-   ► Type information may be simplified
-   ► Optimization metadata may be invalidated
-
-3. DEPRECATED INTRINSICS MAY BREAK
-   ► Some LLVM intrinsics were removed in LLVM 22
-   ► Auto-upgrade attempts to map to newer intrinsics
-   ► Mapping may be incorrect for edge cases
-   ► Results in assertion failures or undefined behavior
-
-4. CALLING CONVENTION MISMATCHES
-   ► x86-64 calling conventions evolved across LLVM versions
-   ► Register allocation may differ
-   ► ABI compatibility not guaranteed
-   ► McSema IR is not standard → additional risk
-
-5. OPTIMIZATIONS MAY FAIL
-   ► OLLVM passes designed for LLVM 22 only
-   ► Unexpected IR patterns may cause crashes
-   ► Some passes may produce incorrect code
-
-6. McSEMA IR IS INHERENTLY INCOMPATIBLE WITH MANY PASSES
-   ► McSema IR uses flattened memory model (state struct)
-   ► Control flow is state machine (not structured CFG)
-   ► Type safety is violated throughout
-   ► These patterns break:
-     - -bcf (bogus control flow) → assumes proper CFG structure
-     - -flattening → expects high-level IR
-     - -split → expects function-level control flow
-     - -opaque-predicates → breaks with state machine IR
-
-7. UPGRADED IR MUST BE VALIDATED
-   ► Run llvm-verify-22 to check for IR errors
-   ► Test linking/execution if possible
-   ► Compare generated code with original
-   ► Expect some degradation compared to native code
-
-8. THIS PIPELINE IS EXPERIMENTAL
-   ► Not suitable for production code
-   ► Results may be incorrect
-   ► No guarantees on obfuscation effectiveness
-   ► Manual inspection recommended
-
-PROCESS:
-========
-1. llvm-dis-22: Disassemble bitcode → textual IR (.ll)
-2. llvm-as-22: Reassemble textual IR → LLVM 22 bitcode
-3. llvm-verify-22: Validate IR structure (warnings only)
-
-THE DISASSEMBLE/REASSEMBLE APPROACH:
-====================================
-Why not use direct bitcode upgrade?
-- LLVM does not provide direct bitcode version upgrade
-- Disassemble/reassemble forces IR through LLVM 22 parser
-- Parser applies auto-upgrade rules to each instruction
-- Results in LLVM 22 bitcode
-
-Risks of this approach:
-- Textual IR intermediate file may be large (hundreds of MB)
-- Disassembly/assembly is slow for large binaries
-- Any parsing error loses entire IR
-"""
+#!/usr/bin/env bash
+# Feature #3 Part 2: LLVM IR Version Upgrade to LLVM 22
+#
+# This script upgrades McSema-produced LLVM IR from LLVM 10-17 to LLVM 22.
+#
+# WHY UPGRADE?
+# ============
+# - McSema lifter produces LLVM 10-17 bitcode (depends on mcsema-lift version)
+# - Our OLLVM implementation is built on LLVM 22
+# - Bitcode format is version-specific and not forward-compatible
+# - LLVM 22 tools cannot process older bitcode versions
+# - Auto-upgrade is necessary before applying OLLVM passes
+#
+# USAGE:
+#   ./convert_ir_version.sh input.bc output_dir
+#
+# EXAMPLE:
+#   ./convert_ir_version.sh ./program.bc ./llvm22_ir/
+#   → Outputs: ./llvm22_ir/program_llvm22.bc
+#
+# CRITICAL WARNINGS:
+# ==================
+#
+# 1. AUTO-UPGRADE HANDLES ~95% OF CASES
+#    ► Remaining 5% may break silently or produce invalid IR
+#    ► No guarantee of semantic equivalence after upgrade
+#    ► Advanced IR features may degrade or disappear
+#
+# 2. LLVM METADATA MAY BE LOST
+#    ► Debug info (line numbers, variable names) often corrupted
+#    ► Custom metadata may be stripped
+#    ► Type information may be simplified
+#    ► Optimization metadata may be invalidated
+#
+# 3. DEPRECATED INTRINSICS MAY BREAK
+#    ► Some LLVM intrinsics were removed in LLVM 22
+#    ► Auto-upgrade attempts to map to newer intrinsics
+#    ► Mapping may be incorrect for edge cases
+#    ► Results in assertion failures or undefined behavior
+#
+# 4. CALLING CONVENTION MISMATCHES
+#    ► x86-64 calling conventions evolved across LLVM versions
+#    ► Register allocation may differ
+#    ► ABI compatibility not guaranteed
+#    ► McSema IR is not standard → additional risk
+#
+# 5. OPTIMIZATIONS MAY FAIL
+#    ► OLLVM passes designed for LLVM 22 only
+#    ► Unexpected IR patterns may cause crashes
+#    ► Some passes may produce incorrect code
+#
+# 6. McSEMA IR IS INHERENTLY INCOMPATIBLE WITH MANY PASSES
+#    ► McSema IR uses flattened memory model (state struct)
+#    ► Control flow is state machine (not structured CFG)
+#    ► Type safety is violated throughout
+#    ► These patterns break:
+#      - -bcf (bogus control flow) → assumes proper CFG structure
+#      - -flattening → expects high-level IR
+#      - -split → expects function-level control flow
+#      - -opaque-predicates → breaks with state machine IR
+#
+# 7. UPGRADED IR MUST BE VALIDATED
+#    ► Run llvm-verify-22 to check for IR errors
+#    ► Test linking/execution if possible
+#    ► Compare generated code with original
+#    ► Expect some degradation compared to native code
+#
+# 8. THIS PIPELINE IS EXPERIMENTAL
+#    ► Not suitable for production code
+#    ► Results may be incorrect
+#    ► No guarantees on obfuscation effectiveness
+#    ► Manual inspection recommended
+#
+# PROCESS:
+# ========
+# 1. llvm-dis-22: Disassemble bitcode → textual IR (.ll)
+# 2. llvm-as-22: Reassemble textual IR → LLVM 22 bitcode
+# 3. llvm-verify-22: Validate IR structure (warnings only)
+#
+# THE DISASSEMBLE/REASSEMBLE APPROACH:
+# ====================================
+# Why not use direct bitcode upgrade?
+# - LLVM does not provide direct bitcode version upgrade
+# - Disassemble/reassemble forces IR through LLVM 22 parser
+# - Parser applies auto-upgrade rules to each instruction
+# - Results in LLVM 22 bitcode
+#
+# Risks of this approach:
+# - Textual IR intermediate file may be large (hundreds of MB)
+# - Disassembly/assembly is slow for large binaries
+# - Any parsing error loses entire IR
 
 set -e
 

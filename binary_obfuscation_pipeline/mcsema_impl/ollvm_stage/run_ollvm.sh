@@ -1,108 +1,106 @@
-#!/bin/bash
-"""
-Feature #4: OLLVM Pass Application on LLVM 22 IR
-
-This script applies user-selected OLLVM obfuscation passes to the lifted IR.
-
-USAGE:
-  ./run_ollvm.sh input_llvm22.bc output_dir passes_config.json
-
-EXAMPLE:
-  ./run_ollvm.sh ./program_llvm22.bc ./obfuscated_ir/ ./passes_config.json
-  → Outputs: ./obfuscated_ir/program_obf.bc
-
-WHY USE CUSTOM OPT FROM PLUGINS?
-=================================
-The opt binary in ./plugins/linux-x86_64/opt is built with OLLVM passes compiled in.
-This is the production opt used by the backend, so we use the same binary for consistency:
-- Same LLVM 22 version
-- Same OLLVM pass implementations
-- Same configuration as production
-
-We do NOT use system opt because:
-- System opt lacks OLLVM pass plugins
-- Would require dynamic plugin loading (error-prone)
-- Custom opt is already in the pipeline
-
-CRITICAL WARNINGS ABOUT McSEMA IR + OLLVM PASSES:
-==================================================
-
-1. FLATTENING (-fla):
-   McSema IR uses a state machine for control flow (not a normal CFG).
-   Flattening operations may:
-   - Corrupt the PC (program counter) update logic
-   - Break function returns (state machine dispatch fails)
-   - Create infinite loops in state machine
-   - Produce non-executable binaries
-   ⚠️ Use only on simple, thoroughly tested binaries
-
-2. BOGUS CONTROL FLOW (-bcf):
-   Bogus CFG injection is EXTREMELY DANGEROUS for McSema IR:
-   - Often introduces unreachable code blocks
-   - Can invalidate lifted CFG edges
-   - May prevent execution from reaching function exit
-   - Results in crashes or hangs
-   ⚠️ AVOID for McSema IR entirely
-
-3. SPLIT BASIC BLOCKS (-split):
-   Splitting blocks breaks McSema's strict BB boundaries:
-   - McSema IR derives BB boundaries from x86-64 instruction semantics
-   - Splitting mid-block corrupts semantic lifting
-   - May break register live-range analysis
-   - Causes undefined behavior
-   ⚠️ AVOID unless absolutely necessary
-
-4. OPAQUE PREDICATES (-opaque):
-   Can break symbolic PC control:
-   - McSema IR relies on explicit PC updates
-   - Opaque predicates confuse register analysis
-   - May cause early crashes before main code executes
-   - Symbolic execution tools cannot handle mangled PC
-   ⚠️ Use with extreme caution
-
-SAFER PASSES FOR McSEMA IR:
-===========================
-✅ INSTRUCTION SUBSTITUTION (-sub):
-   Safe because it operates at IR level without changing control flow
-   Does not modify CFG structure
-   Only replaces arithmetic/logical operations with equivalent sequences
-
-✅ LIGHTWEIGHT FLATTENING (if enabled):
-   Use only on simple programs with validated CFGs
-   Test thoroughly before production use
-   Monitor binary behavior (may cause slowdowns)
-
-✅ STANDARD LLVM OPTIMIZATIONS (-O1, -O2):
-   Safe for post-obfuscation optimization
-   OLLVM passes should run FIRST, then standard opts
-   Standard opts can improve performance and code quality
-
-EXPERIMENTAL PIPELINE NOTICE:
-=============================
-This OLLVM + McSema combination is EXPERIMENTAL:
-- OLLVM was designed for normal compiled code, not lifter IR
-- McSema IR is low-level machine semantics (not high-level IR)
-- Combination may produce incorrect or unpredictable code
-- Only small test programs should be used until equivalence is validated
-- Larger binaries have higher risk of obfuscation-induced bugs
-
-VALIDATION REQUIRED:
-====================
-Before using obfuscated binaries:
-1. Test on simple programs (add, multiply, fibonacci)
-2. Verify output matches original (functional equivalence)
-3. Check execution on target Windows system
-4. Use debugger to trace control flow
-5. Compare performance (expect 10-20% slowdown)
-
-DO NOT use obfuscated output in production without thorough testing.
-"""
+#!/usr/bin/env bash
+# Feature #4: OLLVM Pass Application on LLVM 22 IR
+#
+# This script applies user-selected OLLVM obfuscation passes to the lifted IR.
+#
+# USAGE:
+#   ./run_ollvm.sh input_llvm22.bc output_dir passes_config.json
+#
+# EXAMPLE:
+#   ./run_ollvm.sh ./program_llvm22.bc ./obfuscated_ir/ ./passes_config.json
+#   → Outputs: ./obfuscated_ir/program_obf.bc
+#
+# WHY USE CUSTOM OPT FROM PLUGINS?
+# =================================
+# The opt binary in ./plugins/linux-x86_64/opt is built with OLLVM passes compiled in.
+# This is the production opt used by the backend, so we use the same binary for consistency:
+# - Same LLVM 22 version
+# - Same OLLVM pass implementations
+# - Same configuration as production
+#
+# We do NOT use system opt because:
+# - System opt lacks OLLVM pass plugins
+# - Would require dynamic plugin loading (error-prone)
+# - Custom opt is already in the pipeline
+#
+# CRITICAL WARNINGS ABOUT McSEMA IR + OLLVM PASSES:
+# ==================================================
+#
+# 1. FLATTENING (-fla):
+#    McSema IR uses a state machine for control flow (not a normal CFG).
+#    Flattening operations may:
+#    - Corrupt the PC (program counter) update logic
+#    - Break function returns (state machine dispatch fails)
+#    - Create infinite loops in state machine
+#    - Produce non-executable binaries
+#    ⚠️ Use only on simple, thoroughly tested binaries
+#
+# 2. BOGUS CONTROL FLOW (-bcf):
+#    Bogus CFG injection is EXTREMELY DANGEROUS for McSema IR:
+#    - Often introduces unreachable code blocks
+#    - Can invalidate lifted CFG edges
+#    - May prevent execution from reaching function exit
+#    - Results in crashes or hangs
+#    ⚠️ AVOID for McSema IR entirely
+#
+# 3. SPLIT BASIC BLOCKS (-split):
+#    Splitting blocks breaks McSema's strict BB boundaries:
+#    - McSema IR derives BB boundaries from x86-64 instruction semantics
+#    - Splitting mid-block corrupts semantic lifting
+#    - May break register live-range analysis
+#    - Causes undefined behavior
+#    ⚠️ AVOID unless absolutely necessary
+#
+# 4. OPAQUE PREDICATES (-opaque):
+#    Can break symbolic PC control:
+#    - McSema IR relies on explicit PC updates
+#    - Opaque predicates confuse register analysis
+#    - May cause early crashes before main code executes
+#    - Symbolic execution tools cannot handle mangled PC
+#    ⚠️ Use with extreme caution
+#
+# SAFER PASSES FOR McSEMA IR:
+# ===========================
+# ✅ INSTRUCTION SUBSTITUTION (-sub):
+#    Safe because it operates at IR level without changing control flow
+#    Does not modify CFG structure
+#    Only replaces arithmetic/logical operations with equivalent sequences
+#
+# ✅ LIGHTWEIGHT FLATTENING (if enabled):
+#    Use only on simple programs with validated CFGs
+#    Test thoroughly before production use
+#    Monitor binary behavior (may cause slowdowns)
+#
+# ✅ STANDARD LLVM OPTIMIZATIONS (-O1, -O2):
+#    Safe for post-obfuscation optimization
+#    OLLVM passes should run FIRST, then standard opts
+#    Standard opts can improve performance and code quality
+#
+# EXPERIMENTAL PIPELINE NOTICE:
+# =============================
+# This OLLVM + McSema combination is EXPERIMENTAL:
+# - OLLVM was designed for normal compiled code, not lifter IR
+# - McSema IR is low-level machine semantics (not high-level IR)
+# - Combination may produce incorrect or unpredictable code
+# - Only small test programs should be used until equivalence is validated
+# - Larger binaries have higher risk of obfuscation-induced bugs
+#
+# VALIDATION REQUIRED:
+# ====================
+# Before using obfuscated binaries:
+# 1. Test on simple programs (add, multiply, fibonacci)
+# 2. Verify output matches original (functional equivalence)
+# 3. Check execution on target Windows system
+# 4. Use debugger to trace control flow
+# 5. Compare performance (expect 10-20% slowdown)
+#
+# DO NOT use obfuscated output in production without thorough testing.
 
 set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+PROJECT_ROOT="/app"
 
 # Path to custom opt with OLLVM passes (from docker build/backend)
 CUSTOM_OPT="${CUSTOM_OPT:-/usr/local/llvm-obfuscator/bin/opt}"

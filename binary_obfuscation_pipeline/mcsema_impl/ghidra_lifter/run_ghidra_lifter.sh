@@ -1,77 +1,22 @@
-#!/bin/bash
-"""
-Ghidra Lifter Wrapper Script
-Orchestrates Docker-based CFG lifting for Windows PE binaries.
-
-This script:
-1. Validates input binary
-2. Builds/verifies Docker image
-3. Runs Docker container with mounted volumes
-4. Returns path to generated .cfg file
-
-USAGE:
-  ./run_ghidra_lifter.sh <binary.exe> <output_dir>
-
-EXAMPLE:
-  ./run_ghidra_lifter.sh ./program.exe ./lifted_output/
-  → Outputs: ./lifted_output/program.cfg
-
-WHY THIS WRAPPER?
-==================
-The ghidra-lifter runs as a separate Docker service (defined in docker-compose.yml).
-This script simplifies the interaction by:
-- Validating binaries before sending to lifter
-- Handling volume mounting automatically
-- Polling until lifting completes
-- Retrieving output CFG file
-- Providing error messages
-
-WHY NOT DIRECT DOCKER CALL?
-============================
-We use docker-compose because:
-- Manages networking between services (backend → ghidra-lifter)
-- Handles volume mounting consistently
-- Provides health checks
-- Simplifies production deployment
-- Enables multi-container orchestration
-
-WHY HEADLESS MODE?
-==================
-Ghidra supports two modes:
-- GUI: Interactive reverse engineering (requires X11 display)
-- Headless: Batch processing via command line (suitable for Docker)
-
-We use headless because:
-- Backend container has no X11 display server
-- Fully automated (no user interaction)
-- Runs in background
-- Can process multiple binaries in parallel
-- Suitable for CI/CD pipelines
-
-LIMITATIONS OF GHIDRA CFG:
-==========================
-- Function detection less accurate than IDA Pro
-- Switch table recovery may fail
-- Complex control flow yields noisy CFGs
-- Only reliable for simple -O0 -g C code (Feature #1 output)
-- CFG accuracy: ~80-85% on constrained binaries
-
-NEXT STEP:
-==========
-The generated .cfg file is passed to Feature #3 (McSema lifting):
-  mcsema-lift --cfg program.cfg --output program.bc
-
-This converts the CFG to LLVM IR, which is then obfuscated.
-"""
+#!/usr/bin/env bash
+# Ghidra Lifter Wrapper Script
+# Orchestrates Docker-based CFG lifting for Windows PE binaries.
+#
+# This script:
+# 1. Validates input binary
+# 2. Assumes the ghidra-lifter service is running
+# 3. Copies the binary to a shared volume
+# 4. Calls the lifter service
+# 5. Returns path to generated .cfg file
+#
+# USAGE:
+#   ./run_ghidra_lifter.sh <binary.exe> <output_dir>
 
 set -e
 
 # Configuration
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-DOCKER_COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
 LIFTER_SERVICE="ghidra-lifter"
-LIFTER_PORT=5001
+LIFTER_PORT=5000
 
 # Color output
 RED='\033[0;31m'
@@ -132,60 +77,13 @@ log_info "Binary: $BINARY_ABS"
 log_info "Output: $OUTPUT_CFG"
 log_info ""
 
-# Check if docker-compose.yml exists
-if [ ! -f "$DOCKER_COMPOSE_FILE" ]; then
-    log_error "docker-compose.yml not found at $DOCKER_COMPOSE_FILE"
-    log_error "Must be run from project root or with correct PROJECT_ROOT"
-    exit 1
-fi
+# Copy binary to the mounted volume
+cp "$BINARY_ABS" "/app/binaries/"
 
-log_info "Using docker-compose: $DOCKER_COMPOSE_FILE"
-
-# Ensure docker-compose services are running
-log_info "Checking if ghidra-lifter service is running..."
-
-# Check if service is healthy
-LIFTER_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$LIFTER_PORT/health" 2>/dev/null || echo "000")
-
-if [ "$LIFTER_HEALTH" != "200" ]; then
-    log_warn "ghidra-lifter service not running or unhealthy (HTTP $LIFTER_HEALTH)"
-    log_info "Starting docker-compose services..."
-
-    cd "$PROJECT_ROOT"
-    docker-compose up -d ghidra-lifter
-
-    # Wait for service to be healthy
-    log_info "Waiting for ghidra-lifter to become healthy..."
-    MAX_WAIT=120
-    ELAPSED=0
-
-    while [ $ELAPSED -lt $MAX_WAIT ]; do
-        LIFTER_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$LIFTER_PORT/health" 2>/dev/null || echo "000")
-
-        if [ "$LIFTER_HEALTH" = "200" ]; then
-            log_info "ghidra-lifter is healthy"
-            break
-        fi
-
-        echo -n "."
-        sleep 2
-        ELAPSED=$((ELAPSED + 2))
-    done
-
-    if [ "$LIFTER_HEALTH" != "200" ]; then
-        log_error "ghidra-lifter failed to become healthy (HTTP $LIFTER_HEALTH)"
-        log_error "Check docker logs: docker logs ghidra-lifter"
-        exit 1
-    fi
-else
-    log_info "ghidra-lifter is healthy (HTTP 200)"
-fi
-
-log_info ""
 log_info "Sending binary to lifter..."
 
 # Call lifter API via HTTP
-RESPONSE=$(curl -s -X POST "http://localhost:$LIFTER_PORT/lift/file" \
+RESPONSE=$(curl -s -X POST "http://$LIFTER_SERVICE:$LIFTER_PORT/lift/file" \
     -H "Content-Type: application/json" \
     -d "{
         \"binary_path\": \"/app/binaries/$BINARY_NAME\",

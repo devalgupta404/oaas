@@ -9,6 +9,7 @@ services:
     volumes:
       - ./cmd/llvm-obfuscator/reports:/app/reports
       - ./cmd/llvm-obfuscator/binaries:/app/binaries
+      - ./binary_obfuscation_pipeline:/app/binary_obfuscation_pipeline
     expose:
       - "8000"
     healthcheck:
