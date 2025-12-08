@@ -532,9 +532,10 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
         ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#f5f5f5')),
         ('TEXTCOLOR', (0,2), (-1,2), colors.HexColor('#1f6feb')),
         ('FONTNAME', (0,2), (-1,2), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,2), (-1,2), 36),
+        ('FONTSIZE', (0,2), (-1,2), 20),
         ('TOPPADDING', (0,2), (-1,2), 10),
         ('BOTTOMPADDING', (0,2), (-1,2), 10),
+        ('ALIGN', (0,2), (-1,2), 'CENTER'),
         # All cells
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
