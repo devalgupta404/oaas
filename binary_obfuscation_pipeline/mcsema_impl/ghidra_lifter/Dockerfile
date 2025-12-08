@@ -25,13 +25,14 @@ WORKDIR /app
 # We use headless mode only—no GUI components needed
 RUN mkdir -p /opt/ghidra && \
     cd /tmp && \
-    wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.1.1_build/ghidra_11.1.1_PUBLIC_20240723.zip && \
-    unzip -q ghidra_11.1.1_PUBLIC_20240723.zip -d /opt/ghidra && \
-    rm ghidra_11.1.1_PUBLIC_20240723.zip && \
-    chmod +x /opt/ghidra/ghidra_11.1.1_PUBLIC/support/analyzeHeadless
+    wget -q https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.4.3_build/ghidra_11.4.3_PUBLIC_20251203.zip && \
+    unzip -q ghidra_11.4.3_PUBLIC_20251203.zip -d /opt/ghidra && \
+    rm ghidra_11.4.3_PUBLIC_20251203.zip && \
+    chmod +x /opt/ghidra/ghidra_11.4.3_PUBLIC/support/analyzeHeadless
 
 # Install Python dependencies for the lifter script
 RUN pip install --no-cache-dir \
+    flask \
     requests \
     pyyaml
 
@@ -42,7 +43,7 @@ COPY lifter_script/ /app/lifter_script/
 RUN mkdir -p /app/reports /app/binaries
 
 # Set environment variables
-ENV GHIDRA_HOME=/opt/ghidra/ghidra_11.1.1_PUBLIC
+ENV GHIDRA_HOME=/opt/ghidra/ghidra_11.4.3_PUBLIC
 ENV PATH="${GHIDRA_HOME}/support:${PATH}"
 
 # Health check: verify Ghidra can start

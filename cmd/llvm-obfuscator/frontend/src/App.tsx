@@ -6112,7 +6112,11 @@ function App() {
         )}
           </>
         ) : (
-          <BinaryObfuscationMode />
+          <BinaryObfuscationMode
+            onJobStart={(jobId) => setJobId(jobId)}
+            obfuscationMode={obfuscationMode}
+            onModeChange={(mode) => setObfuscationMode(mode)}
+          />
         )}
       </main>
 
