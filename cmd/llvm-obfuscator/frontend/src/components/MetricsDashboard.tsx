@@ -64,6 +64,7 @@ interface InstructionMetricsData {
 
 interface ReportData {
   obfuscation_score?: number;
+  overall_protection_index?: number;
   control_flow_metrics?: ControlFlowMetricsData;
   instruction_metrics?: InstructionMetricsData;
 }
@@ -102,30 +103,39 @@ const INSTRUCTION_COLORS: { [key: string]: string } = {
 
 /**
  * Protection Score Card - Main summary widget
+ * Displays score on 0-100 scale (industry-standard PRCS framework)
  */
 const ProtectionScoreCard: React.FC<{ score?: number }> = ({ score = 0 }) => {
-  const getGrade = (s: number): string => {
-    if (s >= 90) return 'A+';
-    if (s >= 80) return 'A';
-    if (s >= 70) return 'B';
-    if (s >= 60) return 'C';
+  // Score is already on 0-100 scale
+  const scoreValue = Math.round(score);
+
+  const getGrade = (scoreVal: number): string => {
+    if (scoreVal >= 85) return 'A+';
+    if (scoreVal >= 75) return 'A';
+    if (scoreVal >= 65) return 'B+';
+    if (scoreVal >= 55) return 'B';
+    if (scoreVal >= 45) return 'C';
     return 'D';
   };
 
-  const getColor = (s: number): string => {
-    if (s >= 80) return '#2ea043';
-    if (s >= 60) return '#d29922';
+  const getColor = (scoreVal: number): string => {
+    if (scoreVal >= 85) return '#2ea043';
+    if (scoreVal >= 75) return '#5cb85c';
+    if (scoreVal >= 65) return '#d29922';
+    if (scoreVal >= 50) return '#ffa500';
     return '#da3633';
   };
 
-  const getEmoji = (s: number): string => {
-    if (s >= 80) return '🟢';
-    if (s >= 60) return '🟡';
+  const getEmoji = (scoreVal: number): string => {
+    if (scoreVal >= 85) return '🟢';
+    if (scoreVal >= 75) return '🟢';
+    if (scoreVal >= 65) return '🟡';
+    if (scoreVal >= 50) return '🟡';
     return '🔴';
   };
 
-  const color = getColor(score);
-  const grade = getGrade(score);
+  const color = getColor(scoreValue);
+  const grade = getGrade(scoreValue);
 
   return (
     <div
@@ -149,7 +159,7 @@ const ProtectionScoreCard: React.FC<{ score?: number }> = ({ score = 0 }) => {
           marginBottom: '8px',
         }}
       >
-        {getEmoji(score)} {Math.round(score)}/100
+        {getEmoji(scoreValue)} {scoreValue}/100
       </div>
       <div
         style={{
@@ -167,11 +177,15 @@ const ProtectionScoreCard: React.FC<{ score?: number }> = ({ score = 0 }) => {
           color: 'var(--text-secondary)',
         }}
       >
-        {score >= 80
+        {scoreValue >= 85
+          ? '✓ Exceptional Obfuscation'
+          : scoreValue >= 75
           ? '✓ Excellent Obfuscation'
-          : score >= 60
+          : scoreValue >= 65
           ? '⚠ Good Obfuscation'
-          : '• Moderate Obfuscation'}
+          : scoreValue >= 50
+          ? '⚠ Moderate Obfuscation'
+          : '• Limited Obfuscation'}
       </div>
     </div>
   );
@@ -592,7 +606,7 @@ export const MetricsDashboard: React.FC<Props> = ({ report }) => {
       }}
     >
       {/* Protection Score */}
-      <ProtectionScoreCard score={report.obfuscation_score} />
+      <ProtectionScoreCard score={report.overall_protection_index || report.obfuscation_score} />
 
       {/* Control Flow Analysis */}
       {hasControlFlow && (
