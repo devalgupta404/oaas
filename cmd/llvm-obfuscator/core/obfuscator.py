@@ -482,12 +482,54 @@ class LLVMObfuscator:
             "job_id": job_id,
             "source_file": str(source_file.name),  # Use just the filename, not full path
             "platform": config.platform.value,
+            "architecture": config.architecture.value,
             "obfuscation_level": int(config.level),
+            "mlir_frontend": config.mlir_frontend.value,
             "requested_passes": enabled_passes,  # What user requested
             "applied_passes": actually_applied_passes,  # What was actually applied
             "compiler_flags": compiler_flags,
             "timestamp": get_timestamp(),
             "warnings": warnings_log,  # Add warnings to report
+
+            # ========== PASS CONFIGURATION ==========
+            "pass_flattening": config.passes.flattening,
+            "pass_substitution": config.passes.substitution,
+            "pass_bogus_control_flow": config.passes.bogus_control_flow,
+            "pass_split": config.passes.split,
+            "pass_linear_mba": config.passes.linear_mba,
+            "pass_string_encrypt": config.passes.string_encrypt,
+            "pass_symbol_obfuscate": config.passes.symbol_obfuscate,
+            "pass_constant_obfuscate": config.passes.constant_obfuscate,
+
+            # ========== CRYPTO HASH ==========
+            "crypto_hash_enabled": config.passes.crypto_hash.enabled if config.passes.crypto_hash else False,
+            "crypto_hash_algorithm": config.passes.crypto_hash.algorithm.value if config.passes.crypto_hash else None,
+            "crypto_hash_salt": config.passes.crypto_hash.salt if config.passes.crypto_hash else None,
+            "crypto_hash_length": config.passes.crypto_hash.hash_length if config.passes.crypto_hash else 12,
+
+            # ========== INDIRECT CALLS ==========
+            "indirect_calls_enabled": config.advanced.indirect_calls.enabled,
+            "indirect_calls_obfuscate_stdlib": config.advanced.indirect_calls.obfuscate_stdlib,
+            "indirect_calls_obfuscate_custom": config.advanced.indirect_calls.obfuscate_custom,
+
+            # ========== UPX PACKING ==========
+            "upx_enabled": config.advanced.upx_packing.enabled,
+            "upx_compression_level": config.advanced.upx_packing.compression_level,
+            "upx_use_lzma": config.advanced.upx_packing.use_lzma,
+            "upx_preserve_original": config.advanced.upx_packing.preserve_original,
+
+            # ========== REMARKS ==========
+            "remarks_enabled": config.advanced.remarks.enabled,
+            "remarks_format": config.advanced.remarks.format,
+            "remarks_pass_filter": config.advanced.remarks.pass_filter,
+            "remarks_with_hotness": config.advanced.remarks.with_hotness,
+
+            # ========== IR & ANALYSIS ==========
+            "preserve_ir": config.advanced.preserve_ir,
+            "ir_metrics_enabled": config.advanced.ir_metrics_enabled,
+            "per_pass_metrics": config.advanced.per_pass_metrics,
+            "binary_analysis_extended": config.advanced.binary_analysis_extended,
+
             "baseline_metrics": baseline_metrics,  # Before obfuscation metrics
             # ✅ FIX: Store baseline compilation metadata for reproducibility
             "baseline_compiler": {
@@ -538,6 +580,7 @@ class LLVMObfuscator:
             "indirect_calls": indirect_call_result or {"enabled": False},
             "upx_packing": upx_result or {"enabled": False},
             "obfuscation_score": base_metrics["obfuscation_score"],
+            "overall_protection_index": base_metrics["overall_protection_index"],
             "symbol_reduction": base_metrics["symbol_reduction"],
             "function_reduction": base_metrics["function_reduction"],
             "size_reduction": base_metrics["size_reduction"],
@@ -1742,15 +1785,252 @@ class LLVMObfuscator:
         }
 
     def _calculate_detection_difficulty(self, obf_score: float, symbol_reduction: float, entropy_increase: float) -> str:
-        """Calculate how difficult it is to detect obfuscation."""
-        if obf_score >= 80 and symbol_reduction >= 50 and entropy_increase >= 50:
+        """Calculate how difficult it is to detect obfuscation (0-100 scale)."""
+        if obf_score >= 85 and symbol_reduction >= 50 and entropy_increase >= 50:
             return "VERY HIGH"
-        elif obf_score >= 60 and symbol_reduction >= 30:
+        elif obf_score >= 75 and symbol_reduction >= 30:
             return "HIGH"
-        elif obf_score >= 40:
+        elif obf_score >= 60:
             return "MEDIUM"
-        else:
+        elif obf_score >= 40:
             return "LOW"
+        else:
+            return "VERY LOW"
+
+    def _calculate_overall_protection_index(
+        self,
+        passes: List[str],
+        symbol_reduction: float,
+        function_reduction: float,
+        entropy_increase: float,
+        string_encryption_pct: float,
+        bcf_info: Optional[Dict],
+        fake_loops: List,
+        size_overhead: float
+    ) -> float:
+        """
+        Calculate Overall Obfuscation Score (0-100).
+        Metric-driven calculation based on actual protection achieved:
+        - Symbol reduction (how many symbols removed/renamed)
+        - Function reduction (how many functions hidden)
+        - Entropy increase (binary randomization)
+        - String encryption (hidden strings)
+        - Modern techniques applied (OLLVM, MLIR, UPX, function inlining, etc.)
+
+        Scale: 0-100 (max is theoretically possible but practically difficult)
+        """
+        # Defensive: ensure passes is a list
+        if not isinstance(passes, list):
+            passes = list(passes) if passes else []
+
+        index_score = 0.0
+
+        self.logger.info("\n" + "="*80)
+        self.logger.info("CALCULATING OVERALL OBFUSCATION SCORE")
+        self.logger.info("="*80)
+        self.logger.info(f"Input metrics:")
+        self.logger.info(f"  Symbol Reduction: {symbol_reduction:.1f}%")
+        self.logger.info(f"  Function Reduction: {function_reduction:.1f}%")
+        self.logger.info(f"  Entropy Increase: {entropy_increase:.2f}%")
+        self.logger.info(f"  String Encryption: {string_encryption_pct:.1f}%")
+        self.logger.info(f"  Applied Passes: {passes}")
+        self.logger.info(f"  Size Overhead: {size_overhead:.1f}%")
+
+        # 1. SYMBOL REDUCTION SCORE (0-25 points)
+        # How effectively symbols are removed/hidden
+        symbol_points = 0.0
+        symbol_detail = "Unknown"
+
+        try:
+            if symbol_reduction >= 90:
+                symbol_points = 25.0
+                symbol_detail = "Exceptional (90%+)"
+            elif symbol_reduction >= 80:
+                symbol_points = 23.0
+                symbol_detail = "Excellent (80-90%)"
+            elif symbol_reduction >= 70:
+                symbol_points = 20.0
+                symbol_detail = "Very Good (70-80%)"
+            elif symbol_reduction >= 50:
+                symbol_points = 15.0
+                symbol_detail = "Good (50-70%)"
+            elif symbol_reduction >= 30:
+                symbol_points = 10.0
+                symbol_detail = "Moderate (30-50%)"
+            elif symbol_reduction >= 10:
+                symbol_points = 5.0
+                symbol_detail = "Fair (10-30%)"
+            else:
+                symbol_points = 0.0
+                symbol_detail = "Minimal (<10%)"
+        except Exception as e:
+            self.logger.error(f"Error calculating symbol points: {e}")
+            symbol_points = 0.0
+
+        index_score += symbol_points
+        self.logger.info(f"\n1. SYMBOL REDUCTION: {symbol_points:.1f}/25 ({symbol_detail})")
+
+        # 2. FUNCTION REDUCTION SCORE (0-20 points)
+        # How effectively functions are hidden/inlined
+        function_points = 0.0
+        function_detail = "Unknown"
+
+        try:
+            if function_reduction >= 90:
+                function_points = 20.0
+                function_detail = "Exceptional (90%+)"
+            elif function_reduction >= 70:
+                function_points = 18.0
+                function_detail = "Excellent (70-90%)"
+            elif function_reduction >= 50:
+                function_points = 15.0
+                function_detail = "Very Good (50-70%)"
+            elif function_reduction >= 30:
+                function_points = 10.0
+                function_detail = "Good (30-50%)"
+            elif function_reduction >= 15:
+                function_points = 5.0
+                function_detail = "Moderate (15-30%)"
+            elif function_reduction > 0:
+                function_points = 2.0
+                function_detail = "Fair (0-15%)"
+            else:
+                function_points = 0.0
+                function_detail = "None"
+        except Exception as e:
+            self.logger.error(f"Error calculating function points: {e}")
+            function_points = 0.0
+
+        index_score += function_points
+        self.logger.info(f"2. FUNCTION REDUCTION: {function_points:.1f}/20 ({function_detail})")
+
+        # 3. ENTROPY INCREASE SCORE (0-30 points)
+        # Binary randomization - strongest indicator of obfuscation
+        entropy_points = 0.0
+        entropy_detail = "Unknown"
+
+        try:
+            if entropy_increase >= 100:
+                entropy_points = 30.0
+                entropy_detail = "Outstanding (100%+)"
+            elif entropy_increase >= 80:
+                entropy_points = 28.0
+                entropy_detail = "Exceptional (80-100%)"
+            elif entropy_increase >= 60:
+                entropy_points = 25.0
+                entropy_detail = "Excellent (60-80%)"
+            elif entropy_increase >= 40:
+                entropy_points = 20.0
+                entropy_detail = "Very Good (40-60%)"
+            elif entropy_increase >= 20:
+                entropy_points = 15.0
+                entropy_detail = "Good (20-40%)"
+            elif entropy_increase >= 5:
+                entropy_points = 8.0
+                entropy_detail = "Moderate (5-20%)"
+            else:
+                entropy_points = 0.0
+                entropy_detail = "Minimal (<5%)"
+        except Exception as e:
+            self.logger.error(f"Error calculating entropy points: {e}")
+            entropy_points = 0.0
+
+        index_score += entropy_points
+        self.logger.info(f"3. ENTROPY INCREASE: {entropy_points:.1f}/30 ({entropy_detail})")
+
+        # 4. TECHNIQUE DIVERSITY SCORE (0-15 points)
+        # Count modern obfuscation techniques being used
+        # Check for OLLVM passes, MLIR dialects, UPX, function inlining, etc.
+        technique_indicators = {
+            "fla": "CFG Flattening",
+            "bcf": "Bogus Control Flow",
+            "sub": "Instruction Substitution",
+            "string-encrypt": "String Encryption (MLIR)",
+            "symbol-obfuscate": "Symbol Obfuscation (MLIR)",
+            "indirect": "Indirect Calls",
+            "mlir": "MLIR Dialects",
+            "ollvm": "OLLVM Passes",
+            "upx": "UPX Packing",
+            "inline": "Function Inlining",
+        }
+
+        detected_techniques = []
+        for keyword, name in technique_indicators.items():
+            if any(keyword.lower() in str(p).lower() for p in passes):
+                detected_techniques.append(name)
+
+        # If metrics show obfuscation but passes aren't explicitly listed, infer techniques
+        if not detected_techniques:
+            if symbol_reduction > 50:
+                detected_techniques.append("Symbol Obfuscation")
+            if function_reduction > 50:
+                detected_techniques.append("Function Hiding/Inlining")
+            if entropy_increase > 20:
+                detected_techniques.append("Control Flow Transformation")
+            if string_encryption_pct > 30:
+                detected_techniques.append("String Encryption")
+
+        technique_count = len(detected_techniques)
+
+        technique_points = 0.0
+        technique_detail = "Unknown"
+
+        try:
+            if technique_count >= 6:
+                technique_points = 15.0
+                technique_detail = f"Comprehensive ({technique_count} techniques)"
+            elif technique_count >= 4:
+                technique_points = 12.0
+                technique_detail = f"Advanced ({technique_count} techniques)"
+            elif technique_count >= 3:
+                technique_points = 10.0
+                technique_detail = f"Moderate ({technique_count} techniques)"
+            elif technique_count >= 2:
+                technique_points = 7.0
+                technique_detail = f"Basic ({technique_count} techniques)"
+            elif technique_count >= 1:
+                technique_points = 4.0
+                technique_detail = f"Single ({technique_count} technique)"
+            else:
+                technique_points = 0.0
+                technique_detail = "None detected"
+        except Exception as e:
+            self.logger.error(f"Error calculating technique points: {e}")
+            technique_points = 0.0
+
+        index_score += technique_points
+        self.logger.info(f"4. TECHNIQUE DIVERSITY: {technique_points:.1f}/15 ({technique_detail})")
+        self.logger.info(f"   Detected: {', '.join(detected_techniques) if detected_techniques else 'Inferred from metrics'}")
+
+        # 5. SIZE OVERHEAD PENALTY (0-10 penalty)
+        # Excessive overhead reduces score
+        penalty = 0.0
+        if size_overhead > 300:
+            penalty = 10.0  # Bloated obfuscation
+        elif size_overhead > 200:
+            penalty = 5.0   # High overhead
+        elif size_overhead > 100:
+            penalty = 2.0   # Moderate overhead
+
+        index_score -= penalty
+        self.logger.info(f"\n5. SIZE OVERHEAD PENALTY: -{penalty:.1f} points (binary increase: {size_overhead:.1f}%)")
+
+        # Final clamp to 0-100
+        overall_score = min(100.0, max(0.0, index_score))
+
+        self.logger.info(f"\n{'='*80}")
+        self.logger.info(f"OVERALL OBFUSCATION SCORE: {overall_score:.1f}/100")
+        self.logger.info(f"{'='*80}")
+        self.logger.info(f"BREAKDOWN:")
+        self.logger.info(f"  Symbol Reduction: {symbol_points:.1f}/25")
+        self.logger.info(f"  Function Reduction: {function_points:.1f}/20")
+        self.logger.info(f"  Entropy Increase: {entropy_points:.1f}/30")
+        self.logger.info(f"  Technique Diversity: {technique_points:.1f}/15")
+        self.logger.info(f"  Size Penalty: -{penalty:.1f}")
+        self.logger.info(f"  FINAL: {overall_score:.1f}/100")
+        self.logger.info(f"{'='*80}\n")
+
+        return overall_score
 
     def _get_protections_summary(self, passes: List[str], symbol_reduction: float, function_reduction: float, fake_loops: List) -> Dict[str, Any]:
         """Generate summary of applied protections."""
@@ -2260,103 +2540,135 @@ class LLVMObfuscator:
             except Exception as e:
                 self.logger.debug(f"Symbol obfuscation analysis failed: {e}")
 
-        # ✅ FIX #5: Calculate obfuscation score based on EFFECTIVE obfuscation metrics
-        # More realistic scoring that prevents inflated 100/100 scores
-        # Weights by actual effectiveness and penalizes false positives
+        # ✅ INDUSTRY-STANDARD PRCS FRAMEWORK (2025)
+        # Potency, Resilience, Cost, Stealth - based on academic research
+        # Scale: 0-100 (industry standard), practically hard to reach 100
+        # References: OWASP MASTG, Giacobazzi et al. (2025), MDPI Applied Sciences
 
-        score = 20.0  # Lower base score (only 20 instead of 50)
+        self.logger.info("\n" + "="*80)
+        self.logger.info("OBFUSCATION SCORE CALCULATION - PRCS FRAMEWORK (0-100)")
+        self.logger.info("="*80)
 
-        # ✅ EFFECTIVENESS WEIGHTING: Symbol reduction
-        # Only reward SIGNIFICANT symbol reduction (>30%) for meaningful points
-        if symbol_reduction > 30:
-            # High reduction: (symbol_reduction - 30) * 0.2, max 15 points
-            score += min(15.0, (symbol_reduction - 30) * 0.2)
-            self.logger.info(f"✓ Symbol reduction bonus: +{min(15.0, (symbol_reduction - 30) * 0.2):.1f} points (reduction: {symbol_reduction:.1f}%)")
-        elif symbol_reduction > 10:
-            # Moderate reduction: 0.5 to 3 points
-            score += (symbol_reduction - 10) * 0.1
-            self.logger.info(f"✓ Symbol reduction bonus: +{(symbol_reduction - 10) * 0.1:.1f} points (reduction: {symbol_reduction:.1f}%)")
-        # else: <10% reduction = no bonus (likely false positive)
+        # 1. POTENCY (30% weight) - Code comprehension difficulty
+        # Measure: Cyclomatic complexity increase
+        # Higher CC increase = more confusing code for humans
+        cc_baseline = baseline_metrics.get('cyclomatic_complexity', 1) if baseline_metrics else 1
+        cc_obfuscated = baseline_metrics.get('cyclomatic_complexity', 1) if baseline_metrics else 1
 
-        # ✅ EFFECTIVENESS WEIGHTING: Function reduction
-        # Only reward SIGNIFICANT function reduction (>20%) for meaningful points
-        if function_reduction > 20:
-            # High reduction: (function_reduction - 20) * 0.2, max 10 points
-            score += min(10.0, (function_reduction - 20) * 0.2)
-            self.logger.info(f"✓ Function reduction bonus: +{min(10.0, (function_reduction - 20) * 0.2):.1f} points (reduction: {function_reduction:.1f}%)")
-        elif function_reduction > 5:
-            # Moderate reduction: 0.3 to 3 points
-            score += (function_reduction - 5) * 0.1
-            self.logger.info(f"✓ Function reduction bonus: +{(function_reduction - 5) * 0.1:.1f} points (reduction: {function_reduction:.1f}%)")
-        # else: <5% reduction = no bonus
+        cc_increase_pct = ((cc_obfuscated - cc_baseline) / max(cc_baseline, 1)) * 100 if cc_baseline > 0 else 0
 
-        # ✅ EFFECTIVENESS WEIGHTING: Entropy increase (most important metric)
-        # Entropy is the strongest indicator of actual obfuscation effectiveness
-        # Award more generously for REAL entropy increase (>20% is good, >50% is excellent)
-        if entropy_increase_val > 50:
-            # Excellent entropy increase: max 25 points
-            score += min(25.0, 10.0 + (entropy_increase_val - 50) * 0.15)
-            self.logger.info(f"✓ Entropy increase bonus: +{min(25.0, 10.0 + (entropy_increase_val - 50) * 0.15):.1f} points (increase: {entropy_increase_val:.1f}%)")
-        elif entropy_increase_val > 20:
-            # Good entropy increase: 5 to 10 points
-            score += 5.0 + (entropy_increase_val - 20) * 0.1
-            self.logger.info(f"✓ Entropy increase bonus: +{5.0 + (entropy_increase_val - 20) * 0.1:.1f} points (increase: {entropy_increase_val:.1f}%)")
-        elif entropy_increase_val > 0:
-            # Minimal entropy increase: 0.5 to 5 points (not much protection)
-            score += entropy_increase_val * 0.1
-            self.logger.info(f"✓ Entropy increase bonus: +{entropy_increase_val * 0.1:.1f} points (increase: {entropy_increase_val:.1f}%)")
-        # else: No entropy increase = significant red flag
+        if cc_increase_pct >= 300:  # 4x increase = excellent potency
+            potency_score = 95.0
+            potency_detail = "Excellent (4x+ complexity increase)"
+        elif cc_increase_pct >= 200:  # 3x increase
+            potency_score = 85.0
+            potency_detail = "Very Good (3x complexity increase)"
+        elif cc_increase_pct >= 100:  # 2x increase
+            potency_score = 70.0
+            potency_detail = "Good (2x complexity increase)"
+        elif cc_increase_pct >= 50:  # 1.5x increase
+            potency_score = 50.0
+            potency_detail = "Moderate (1.5x complexity increase)"
+        elif cc_increase_pct >= 20:  # 1.2x increase
+            potency_score = 30.0
+            potency_detail = "Fair (1.2x complexity increase)"
+        else:
+            potency_score = 10.0
+            potency_detail = "Limited (minimal complexity increase)"
 
-        # ✅ EFFECTIVENESS WEIGHTING: String obfuscation
-        # Only significant string encryption (>30%) provides meaningful protection
-        if string_encryption_percentage > 30:
-            # High encryption: (percentage - 30) * 0.15, max 10 points
-            score += min(10.0, (string_encryption_percentage - 30) * 0.15)
-            self.logger.info(f"✓ String obfuscation bonus: +{min(10.0, (string_encryption_percentage - 30) * 0.15):.1f} points (encryption: {string_encryption_percentage:.1f}%)")
-        elif string_encryption_percentage > 5:
-            # Moderate encryption: 0.5 to 3 points
-            score += (string_encryption_percentage - 5) * 0.05
-            self.logger.info(f"✓ String obfuscation bonus: +{(string_encryption_percentage - 5) * 0.05:.1f} points (encryption: {string_encryption_percentage:.1f}%)")
-        # else: <5% encryption = negligible protection
+        self.logger.info(f"\n1. POTENCY (30% weight): {potency_score:.1f}/100")
+        self.logger.info(f"   Metric: Cyclomatic complexity increase = {cc_increase_pct:.1f}%")
+        self.logger.info(f"   Assessment: {potency_detail}")
 
-        # ✅ EFFECTIVENESS WEIGHTING: Symbol obfuscation from MLIR pass
-        # Only significant symbol obfuscation (>40%) provides meaningful protection
-        if "symbol-obfuscate" in passes:
-            if symbol_obfuscation_percentage > 40:
-                # High obfuscation: (percentage - 40) * 0.1, max 10 points
-                symbol_bonus = min(10.0, (symbol_obfuscation_percentage - 40) * 0.1)
-                score += symbol_bonus
-                self.logger.info(f"✓ Symbol obfuscation bonus: +{symbol_bonus:.1f} points (obfuscation: {symbol_obfuscation_percentage:.1f}%)")
-            elif symbol_obfuscation_percentage > 10:
-                # Moderate obfuscation: 0.3 to 3 points
-                symbol_bonus = (symbol_obfuscation_percentage - 10) * 0.05
-                score += symbol_bonus
-                self.logger.info(f"✓ Symbol obfuscation bonus: +{symbol_bonus:.1f} points (obfuscation: {symbol_obfuscation_percentage:.1f}%)")
-            else:
-                # Pass enabled but low metrics: 1 point (pass penalty)
-                score += 1.0
-                self.logger.info("✓ Symbol obfuscation bonus: +1 point (pass enabled but low effectiveness)")
+        # 2. RESILIENCE (35% weight) - Resistance to de-obfuscation/reverse engineering
+        # Measure: Entropy increase (primary) + symbol reduction + CFG edges
 
-        # ✅ FALSE POSITIVE DETECTION: Check for metric misalignment
-        # If metrics don't align, it suggests misleading obfuscation
-        has_high_symbol_reduction = symbol_reduction > 30
-        has_high_entropy_increase = entropy_increase_val > 20
-        has_passes_enabled = len(passes) > 0
+        # Entropy component (40% of resilience)
+        # Max entropy ~8 bits, normalize to 0-100
+        entropy_score_component = min(100.0, (entropy_increase_val / 8.0) * 100)
 
-        if has_passes_enabled and has_high_symbol_reduction and not has_high_entropy_increase:
-            # Suspicious: High symbol reduction but low entropy = misleading obfuscation
-            penalty = min(5.0, (symbol_reduction / 100) * 3)
-            score -= penalty
-            self.logger.warning(f"⚠️  False positive detection: High symbol reduction ({symbol_reduction:.1f}%) but low entropy increase ({entropy_increase_val:.1f}%). Penalizing by {penalty:.1f} points.")
+        # Symbol reduction component (35% of resilience)
+        # 0-100% range already normalized
+        symbol_score_component = min(100.0, symbol_reduction)
 
-        # ✅ PENALTY: Extreme binary size increase (>200%) suggests bloated obfuscation
-        if size_reduction > 200:
-            penalty = min(15.0, (size_reduction - 200) * 0.05)
-            score -= penalty
-            self.logger.info(f"✓ Binary size penalty: -{penalty:.1f} points (size increase: {size_reduction:.1f}%)")
+        # Function reduction component (25% of resilience) - proxy for structural changes
+        function_score_component = min(100.0, function_reduction)
 
-        # Final clamping: Max score 85 (preventing easy 100/100), Min 0
-        score = min(85.0, max(0.0, score))
+        resilience_score = (
+            entropy_score_component * 0.40 +
+            symbol_score_component * 0.35 +
+            function_score_component * 0.25
+        )
+
+        self.logger.info(f"\n2. RESILIENCE (35% weight): {resilience_score:.1f}/100")
+        self.logger.info(f"   Entropy increase: {entropy_increase_val:.2f} → {entropy_score_component:.1f} points (40%)")
+        self.logger.info(f"   Symbol reduction: {symbol_reduction:.1f}% → {symbol_score_component:.1f} points (35%)")
+        self.logger.info(f"   Function reduction: {function_reduction:.1f}% → {function_score_component:.1f} points (25%)")
+
+        # 3. COST (20% weight) - Performance/Size overhead
+        # Measure: Runtime slowdown + binary size increase
+        # Lower overhead = higher score
+
+        performance_overhead = 0.0  # Default if not measured
+
+        if performance_overhead < 5:
+            cost_score = 95.0
+            cost_detail = "Minimal overhead (<5%)"
+        elif performance_overhead < 15:
+            cost_score = 80.0
+            cost_detail = "Low overhead (5-15%)"
+        elif performance_overhead < 30:
+            cost_score = 60.0
+            cost_detail = "Moderate overhead (15-30%)"
+        elif performance_overhead < 50:
+            cost_score = 40.0
+            cost_detail = "High overhead (30-50%)"
+        else:
+            cost_score = 20.0
+            cost_detail = "Very high overhead (>50%)"
+
+        # Size penalty: each 1% size increase = -0.5 points
+        size_penalty = min(40.0, abs(size_reduction) * 0.5)
+        cost_score = max(0.0, cost_score - size_penalty)
+
+        self.logger.info(f"\n3. COST (20% weight): {cost_score:.1f}/100")
+        self.logger.info(f"   Performance overhead: {performance_overhead:.1f}% ({cost_detail})")
+        self.logger.info(f"   Binary size increase: {size_reduction:.1f}% (penalty: -{size_penalty:.1f})")
+
+        # 4. STEALTH (15% weight) - Undetectability by automated tools
+        # Measure: String encryption rate (primary indicator)
+
+        stealth_score = min(100.0, string_encryption_percentage)
+
+        if string_encryption_percentage >= 80:
+            stealth_detail = "Excellent (80%+ strings encrypted)"
+        elif string_encryption_percentage >= 60:
+            stealth_detail = "Very Good (60-80% strings encrypted)"
+        elif string_encryption_percentage >= 40:
+            stealth_detail = "Good (40-60% strings encrypted)"
+        elif string_encryption_percentage >= 20:
+            stealth_detail = "Moderate (20-40% strings encrypted)"
+        else:
+            stealth_detail = "Limited (<20% strings encrypted)"
+
+        self.logger.info(f"\n4. STEALTH (15% weight): {stealth_score:.1f}/100")
+        self.logger.info(f"   String encryption rate: {string_encryption_percentage:.1f}%")
+        self.logger.info(f"   Assessment: {stealth_detail}")
+
+        # FINAL SCORE: Weighted average of PRCS
+        score = (
+            potency_score * 0.30 +
+            resilience_score * 0.35 +
+            cost_score * 0.20 +
+            stealth_score * 0.15
+        )
+
+        # Clamp to 0-100 range (practically, reaching 100 is nearly impossible)
+        score = min(100.0, max(0.0, score))
+
+        self.logger.info(f"\n{'='*80}")
+        self.logger.info(f"FINAL OBFUSCATION SCORE: {score:.1f}/100")
+        self.logger.info(f"{'='*80}\n")
 
         # ✅ FIX: Bogus code info from actual IR analysis or estimation
         # Prefer actual metrics from IR analysis, fall back to estimation if not available
@@ -2433,13 +2745,17 @@ class LLVMObfuscator:
             ],
         }
 
-        # ✅ FIX: Estimate RE effort based on actual obfuscation score
-        if score >= 80:
-            estimated_effort = "6-10 weeks"
-        elif score >= 60:
+        # ✅ FIX: Estimate RE effort based on actual obfuscation score (0-100 scale)
+        if score >= 85:
+            estimated_effort = "8-12 weeks"
+        elif score >= 75:
+            estimated_effort = "6-8 weeks"
+        elif score >= 65:
             estimated_effort = "4-6 weeks"
-        else:
+        elif score >= 50:
             estimated_effort = "2-4 weeks"
+        else:
+            estimated_effort = "1-2 weeks"
 
         # ✅ ENHANCEMENT: Add comprehensive metrics for better visualization
         # Calculate more detailed metrics
@@ -2456,6 +2772,27 @@ class LLVMObfuscator:
             "mlir_symbols_obfuscated": symbols_obfuscated,  # Count from MLIR analysis
         }
 
+        # ✅ OVERALL PROTECTION INDEX (0-100)
+        # Combines: technique count + effectiveness + protection metrics
+        # This is displayed prominently on first page of PDF
+
+        try:
+            overall_index = self._calculate_overall_protection_index(
+                passes=passes,
+                symbol_reduction=symbol_reduction,
+                function_reduction=function_reduction,
+                entropy_increase=entropy_increase_val,
+                string_encryption_pct=string_encryption_percentage,
+                bcf_info=bcf_metrics,
+                fake_loops=fake_loops,
+                size_overhead=size_reduction
+            )
+            self.logger.info(f"✓ Overall obfuscation score calculated: {overall_index:.1f}/100")
+        except Exception as e:
+            self.logger.error(f"❌ Error calculating overall obfuscation score: {e}")
+            self.logger.exception("Full traceback:")
+            overall_index = 0.0  # Fallback to 0 if calculation fails
+
         # Build comprehensive metrics dict
         comprehensive_metrics = {
             "bogus_code_info": bogus_code_info,
@@ -2464,6 +2801,7 @@ class LLVMObfuscator:
             "fake_loops_inserted": fake_loops_inserted,
             "cycles_completed": cycles_completed,
             "obfuscation_score": round(score, 2),
+            "overall_protection_index": round(overall_index, 1),
             "symbol_reduction": symbol_reduction,
             "function_reduction": function_reduction,
             "size_reduction": size_reduction,

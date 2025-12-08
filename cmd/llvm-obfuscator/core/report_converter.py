@@ -503,44 +503,44 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
         if display_warnings:
             story.append(Spacer(1, 0.15*inch))
 
-    # Score Section - Protection Grade
-    score = _safe_float(report.get('obfuscation_score', 0))
+    # Overall Obfuscation Score - Displayed on First Page (metric-driven score)
+    overall_index = _safe_float(report.get('overall_protection_index', 0))
 
-    # Create protection grade table with header and score combined
-    grade_data = [
-        ['PROTECTION GRADE'],
-        ['Based on entropy increase, symbol reduction & control flow complexity'],
-        [f'{score:.1f}/100']
+    # Create a summary metrics table for page 1 with Overall Obfuscation Score
+    summary_metrics = [
+        ['OVERALL OBFUSCATION SCORE'],
+        [f'{overall_index:.1f}/100'],
+        ['Metric-driven: Symbol Reduction + Function Hiding + Entropy + Techniques']
     ]
-    grade_table = Table(grade_data, colWidths=[7*inch])
-    grade_table.setStyle(TableStyle([
+    summary_table = Table(summary_metrics, colWidths=[7*inch])
+    summary_table.setStyle(TableStyle([
         # Header row
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f6feb')),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,0), 14),
+        ('FONTSIZE', (0,0), (-1,0), 12),
         ('TOPPADDING', (0,0), (-1,0), 8),
         ('BOTTOMPADDING', (0,0), (-1,0), 6),
-        # Description row
-        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#1f6feb')),
-        ('TEXTCOLOR', (0,1), (-1,1), colors.white),
-        ('FONTNAME', (0,1), (-1,1), 'Helvetica'),
-        ('FONTSIZE', (0,1), (-1,1), 9),
-        ('TOPPADDING', (0,1), (-1,1), 4),
-        ('BOTTOMPADDING', (0,1), (-1,1), 8),
         # Score row
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#f5f5f5')),
+        ('TEXTCOLOR', (0,1), (-1,1), colors.HexColor('#1f6feb')),
+        ('FONTNAME', (0,1), (-1,1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,1), (-1,1), 18),
+        ('TOPPADDING', (0,1), (-1,1), 8),
+        ('BOTTOMPADDING', (0,1), (-1,1), 8),
+        ('ALIGN', (0,1), (-1,1), 'CENTER'),
+        # Description row
         ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#f5f5f5')),
-        ('TEXTCOLOR', (0,2), (-1,2), colors.HexColor('#1f6feb')),
-        ('FONTNAME', (0,2), (-1,2), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,2), (-1,2), 20),
-        ('TOPPADDING', (0,2), (-1,2), 10),
-        ('BOTTOMPADDING', (0,2), (-1,2), 10),
-        ('ALIGN', (0,2), (-1,2), 'CENTER'),
+        ('TEXTCOLOR', (0,2), (-1,2), colors.HexColor('#666666')),
+        ('FONTNAME', (0,2), (-1,2), 'Helvetica'),
+        ('FONTSIZE', (0,2), (-1,2), 9),
+        ('TOPPADDING', (0,2), (-1,2), 4),
+        ('BOTTOMPADDING', (0,2), (-1,2), 6),
         # All cells
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
     ]))
-    story.append(grade_table)
+    story.append(summary_table)
     story.append(Spacer(1, 0.08*inch))
 
     # Quick Metrics Row
@@ -577,33 +577,257 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
         except Exception as e:
             logger.error(f"Error embedding comparison chart: {e}")
 
-    # Input Parameters
-    story.append(Paragraph("<b>Input Parameters</b>", styles['Heading2']))
-    story.append(Spacer(1, 0.08*inch))
+    # Input Parameters - COMPREHENSIVE TABLE WITH ALL SETTINGS
+    story.append(PageBreak())  # Dedicated page for input parameters
+    story.append(Paragraph("Input Parameters & Configuration Details", styles['Heading2']))
+    story.append(Spacer(1, 0.15*inch))
 
-    input_data = [
-        ['Source File', input_params.get('source_file', 'N/A')],
-        ['Platform', input_params.get('platform', 'N/A')],
+    # GLOBAL SETTINGS
+    story.append(Paragraph("Global Settings", styles['Heading3']))
+    global_data = [
+        ['Parameter', 'Value'],
+        ['Source File', str(input_params.get('source_file', 'N/A'))],
+        ['Platform', str(input_params.get('platform', 'N/A'))],
+        ['Architecture', str(input_params.get('architecture', 'N/A'))],
         ['Obfuscation Level', str(input_params.get('obfuscation_level', 'N/A'))],
+        ['MLIR Frontend', str(input_params.get('mlir_frontend', 'clang'))],
+        ['Compiler Flags', _safe_list_str(input_params.get('compiler_flags'), 'None')],
+    ]
+    global_table = Table(global_data, colWidths=[2.5*inch, 4.5*inch])
+    global_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2980b9')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('PADDING', (0, 0), (-1, -1), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#ecf0f1')]),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ]))
+    story.append(global_table)
+    story.append(Spacer(1, 0.15*inch))
+
+    # OLLVM PASSES
+    story.append(Paragraph("OLLVM Obfuscation Passes", styles['Heading3']))
+    passes_data = [
+        ['Pass', 'Enabled', 'Pass', 'Enabled'],
+        ['Flattening', "✓" if input_params.get('pass_flattening', False) else "✗", 'String Encrypt', "✓" if input_params.get('pass_string_encrypt', False) else "✗"],
+        ['Substitution', "✓" if input_params.get('pass_substitution', False) else "✗", 'Symbol Obf', "✓" if input_params.get('pass_symbol_obfuscate', False) else "✗"],
+        ['Bogus CF', "✓" if input_params.get('pass_bogus_control_flow', False) else "✗", 'Const Obf', "✓" if input_params.get('pass_constant_obfuscate', False) else "✗"],
+        ['Split', "✓" if input_params.get('pass_split', False) else "✗", '', ''],
+        ['Linear MBA', "✓" if input_params.get('pass_linear_mba', False) else "✗", '', ''],
+    ]
+    passes_table = Table(passes_data, colWidths=[1.5*inch, 1.0*inch, 1.5*inch, 1.0*inch])
+    passes_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#27ae60')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#ecf0f1')]),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ]))
+    story.append(passes_table)
+    story.append(Spacer(1, 0.12*inch))
+
+    # REQUESTED vs APPLIED PASSES
+    passes_list_data = [
         ['Requested Passes', _safe_list_str(input_params.get('requested_passes'), 'None')],
         ['Applied Passes', _safe_list_str(input_params.get('applied_passes'), 'None')],
     ]
-    input_table = Table(input_data, colWidths=[2*inch, 5*inch])
-    input_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+    passes_list_table = Table(passes_list_data, colWidths=[2.0*inch, 5.0*inch])
+    passes_list_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16a085')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('PADDING', (0, 0), (-1, -1), 10),
+        ('PADDING', (0, 0), (-1, -1), 8),
         ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
-        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#ecf0f1')]),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
     ]))
-    story.append(input_table)
-    story.append(Spacer(1, 0.08*inch))
+    story.append(passes_list_table)
+    story.append(Spacer(1, 0.15*inch))
+
+    # ADVANCED FEATURES
+    story.append(Paragraph("Advanced Features & Configuration", styles['Heading3']))
+    advanced_data = [
+        ['Feature', 'Value', 'Feature', 'Value'],
+        ['Crypto Hash', "✓" if input_params.get('crypto_hash_enabled', False) else "✗", 'UPX Packing', "✓" if input_params.get('upx_enabled', False) else "✗"],
+        ['Indirect Calls', "✓" if input_params.get('indirect_calls_enabled', False) else "✗", 'Remarks', "✓" if input_params.get('remarks_enabled', True) else "✗"],
+        ['IR Metrics', "✓" if input_params.get('ir_metrics_enabled', True) else "✗", 'Preserve IR', "✓" if input_params.get('preserve_ir', True) else "✗"],
+    ]
+    advanced_table = Table(advanced_data, colWidths=[1.5*inch, 1.0*inch, 1.5*inch, 1.0*inch])
+    advanced_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e74c3c')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#ecf0f1')]),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ]))
+    story.append(advanced_table)
+    story.append(Spacer(1, 0.15*inch))
+
+    # ============= LAYER-BASED CONFIGURATION DETAILS =============
+
+    # LAYER 1: SYMBOL OBFUSCATION (Crypto Hash)
+    if input_params.get('pass_symbol_obfuscate', False) or input_params.get('crypto_hash_enabled', False):
+        story.append(Paragraph("Layer 1: Symbol Obfuscation Configuration", styles['Heading3']))
+        symbol_obf_data = [
+            ['Setting', 'Value'],
+            ['Crypto Hash Enabled', "✓ Yes" if input_params.get('crypto_hash_enabled', False) else "✗ No"],
+            ['Algorithm', str(input_params.get('crypto_hash_algorithm', 'N/A'))],
+            ['Salt', str(input_params.get('crypto_hash_salt', '')) or '(none)'],
+            ['Hash Length', str(input_params.get('crypto_hash_length', 12))],
+        ]
+        symbol_obf_table = Table(symbol_obf_data, colWidths=[2.5*inch, 4.5*inch])
+        symbol_obf_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8e44ad')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('PADDING', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(symbol_obf_table)
+        story.append(Spacer(1, 0.12*inch))
+
+    # LAYER 2: STRING ENCRYPTION
+    if input_params.get('pass_string_encrypt', False):
+        story.append(Paragraph("Layer 2: String Encryption Configuration", styles['Heading3']))
+        string_enc_data = [
+            ['Setting', 'Value'],
+            ['String Encryption Enabled', "✓ Yes" if input_params.get('pass_string_encrypt', False) else "✗ No"],
+            ['Min String Length', str(input_params.get('string_min_length', 'N/A'))],
+            ['Encrypt Format Strings', "✓ Yes" if input_params.get('string_encrypt_format_strings', False) else "✗ No"],
+        ]
+        string_enc_table = Table(string_enc_data, colWidths=[2.5*inch, 4.5*inch])
+        string_enc_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e67e22')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('PADDING', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(string_enc_table)
+        story.append(Spacer(1, 0.12*inch))
+
+    # LAYER 2: FAKE LOOPS INSERTION
+    fake_loops_config = report.get('fake_loops_inserted', {})
+    fake_loops_count = fake_loops_config.get('count', 0) if fake_loops_config else 0
+    if fake_loops_count > 0:
+        story.append(Paragraph("Layer 2: Fake Loops Configuration", styles['Heading3']))
+        fake_loops_data = [
+            ['Setting', 'Value'],
+            ['Total Fake Loops Inserted', str(fake_loops_count)],
+            ['Loop Types', ", ".join(fake_loops_config.get('types', [])) or 'None'],
+            ['Locations', ", ".join(fake_loops_config.get('locations', [])) or 'None'],
+        ]
+        fake_loops_table = Table(fake_loops_data, colWidths=[2.5*inch, 4.5*inch])
+        fake_loops_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#c0392b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('PADDING', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(fake_loops_table)
+        story.append(Spacer(1, 0.12*inch))
+
+    # LAYER 2.5: INDIRECT CALLS
+    if input_params.get('indirect_calls_enabled', False):
+        story.append(Paragraph("Layer 2.5: Indirect Calls Configuration", styles['Heading3']))
+        indirect_calls_data = [
+            ['Setting', 'Value'],
+            ['Indirect Calls Enabled', "✓ Yes" if input_params.get('indirect_calls_enabled', False) else "✗ No"],
+            ['Obfuscate Stdlib', "✓ Yes" if input_params.get('indirect_calls_obfuscate_stdlib', True) else "✗ No"],
+            ['Obfuscate Custom Calls', "✓ Yes" if input_params.get('indirect_calls_obfuscate_custom', True) else "✗ No"],
+        ]
+        indirect_calls_table = Table(indirect_calls_data, colWidths=[2.5*inch, 4.5*inch])
+        indirect_calls_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d35400')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('PADDING', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(indirect_calls_table)
+        story.append(Spacer(1, 0.12*inch))
+
+    # LAYER 4: COMPILER FLAGS
+    compiler_flags = input_params.get('compiler_flags', [])
+    if compiler_flags:
+        story.append(Paragraph("Layer 4: Compiler Flags Configuration", styles['Heading3']))
+        flags_data = [
+            ['Compiler Flag', 'Status'],
+        ]
+        for flag in compiler_flags:
+            flags_data.append([str(flag), '✓ Applied'])
+
+        flags_table = Table(flags_data, colWidths=[3.0*inch, 4.0*inch])
+        flags_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495e')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+            ('PADDING', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(flags_table)
+        story.append(Spacer(1, 0.12*inch))
+
+    # LAYER 5: UPX PACKING
+    if input_params.get('upx_enabled', False):
+        story.append(Paragraph("Layer 5: UPX Packing Configuration", styles['Heading3']))
+        upx_data = [
+            ['Setting', 'Value'],
+            ['UPX Packing Enabled', "✓ Yes" if input_params.get('upx_enabled', False) else "✗ No"],
+            ['Compression Level', str(input_params.get('upx_compression_level', 'best'))],
+            ['Use LZMA', "✓ Yes" if input_params.get('upx_use_lzma', True) else "✗ No"],
+            ['Preserve Original', "✓ Yes" if input_params.get('upx_preserve_original', False) else "✗ No"],
+        ]
+        upx_table = Table(upx_data, colWidths=[2.5*inch, 4.5*inch])
+        upx_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16a085')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('PADDING', (0, 0), (-1, -1), 7),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+        ]))
+        story.append(upx_table)
+        story.append(Spacer(1, 0.12*inch))
 
     # Baseline Compilation Details (if available)
     baseline_compiler = report.get('baseline_compiler', {})
@@ -641,7 +865,7 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
     story.append(Paragraph("Metrics Comparison & Output Details", styles['Heading1']))
     story.append(Spacer(1, 0.05*inch))
 
-    # Before/After Comparison
+    # Before/After Comparison - BAR CHART
     story.append(Paragraph("<b>Before/After Metrics</b>", styles['Heading2']))
     story.append(Spacer(1, 0.08*inch))
 
@@ -649,39 +873,105 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
     output_attrs = report.get('output_attributes', {})
     comparison = report.get('comparison', {})
 
-    comparison_data = [
-        ['Metric', 'Baseline', 'Obfuscated', 'Change'],
-        ['File Size',
-         format_bytes(baseline_metrics.get('file_size', 0)),
-         format_bytes(output_attrs.get('file_size', 0)),
-         format_percentage(comparison.get('size_change_percent', 0))],
-        ['Symbols',
-         str(baseline_metrics.get('symbols_count', 'N/A')),
-         str(output_attrs.get('symbols_count', 'N/A')),
-         f"-{_safe_float(comparison.get('symbols_removed_percent'), 0):.1f}%"],
-        ['Functions',
-         str(baseline_metrics.get('functions_count', 'N/A')),
-         str(output_attrs.get('functions_count', 'N/A')),
-         f"-{_safe_float(comparison.get('functions_removed_percent'), 0):.1f}%"],
-        ['Entropy',
-         format_entropy(baseline_metrics.get('entropy')),
-         format_entropy(output_attrs.get('entropy')),
-         format_entropy(comparison.get('entropy_increase'))],
-    ]
-    comparison_table = Table(comparison_data, colWidths=[1.7*inch, 1.7*inch, 1.7*inch, 1.7*inch])
-    comparison_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 9),
-        ('PADDING', (0, 0), (-1, -1), 10),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
-        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
-    ]))
-    story.append(comparison_table)
-    story.append(Spacer(1, 0.08*inch))
+    if MATPLOTLIB_AVAILABLE:
+        try:
+            # Create comparison bar chart
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5), dpi=100)
+
+            # Symbols chart
+            baseline_symbols = int(baseline_metrics.get('symbols_count', 0))
+            output_symbols = int(output_attrs.get('symbols_count', 0))
+
+            ax1.bar(['Baseline', 'Obfuscated'], [baseline_symbols, output_symbols],
+                   color=['#3498DB', '#E74C3C'], edgecolor='black', linewidth=1.5)
+            ax1.set_ylabel('Count', fontweight='bold', fontsize=10)
+            ax1.set_title('Symbol Count Comparison', fontweight='bold', fontsize=11)
+            ax1.grid(axis='y', alpha=0.3, linestyle='--')
+            for i, (baseline, obf) in enumerate([(baseline_symbols, output_symbols)]):
+                ax1.text(0, baseline, f'{baseline}', ha='center', va='bottom', fontweight='bold', fontsize=9)
+                ax1.text(1, obf, f'{obf}', ha='center', va='bottom', fontweight='bold', fontsize=9)
+
+            # Functions chart
+            baseline_functions = int(baseline_metrics.get('functions_count', 0))
+            output_functions = int(output_attrs.get('functions_count', 0))
+
+            ax2.bar(['Baseline', 'Obfuscated'], [baseline_functions, output_functions],
+                   color=['#3498DB', '#E74C3C'], edgecolor='black', linewidth=1.5)
+            ax2.set_ylabel('Count', fontweight='bold', fontsize=10)
+            ax2.set_title('Function Count Comparison', fontweight='bold', fontsize=11)
+            ax2.grid(axis='y', alpha=0.3, linestyle='--')
+            for i, (baseline, obf) in enumerate([(baseline_functions, output_functions)]):
+                ax2.text(0, baseline, f'{baseline}', ha='center', va='bottom', fontweight='bold', fontsize=9)
+                ax2.text(1, obf, f'{obf}', ha='center', va='bottom', fontweight='bold', fontsize=9)
+
+            plt.tight_layout()
+
+            # Convert to image
+            img_buffer_comparison = BytesIO()
+            plt.savefig(img_buffer_comparison, format='png', bbox_inches='tight', dpi=100)
+            img_buffer_comparison.seek(0)
+            plt.close(fig)
+
+            from reportlab.platypus import Image as RLImage
+            comparison_chart = RLImage(img_buffer_comparison, width=6.5*inch, height=2.5*inch)
+            story.append(comparison_chart)
+            story.append(Spacer(1, 0.08*inch))
+
+        except Exception as e:
+            logger.warning(f"Failed to create comparison chart: {e}")
+            # Fallback to table
+            comparison_data = [
+                ['Metric', 'Baseline', 'Obfuscated', 'Change'],
+                ['Symbols',
+                 str(baseline_metrics.get('symbols_count', 'N/A')),
+                 str(output_attrs.get('symbols_count', 'N/A')),
+                 f"-{_safe_float(comparison.get('symbols_removed_percent'), 0):.1f}%"],
+                ['Functions',
+                 str(baseline_metrics.get('functions_count', 'N/A')),
+                 str(output_attrs.get('functions_count', 'N/A')),
+                 f"-{_safe_float(comparison.get('functions_removed_percent'), 0):.1f}%"],
+            ]
+            comparison_table = Table(comparison_data, colWidths=[1.7*inch, 1.7*inch, 1.7*inch, 1.7*inch])
+            comparison_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('PADDING', (0, 0), (-1, -1), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+            ]))
+            story.append(comparison_table)
+            story.append(Spacer(1, 0.08*inch))
+    else:
+        # Fallback if matplotlib not available
+        comparison_data = [
+            ['Metric', 'Baseline', 'Obfuscated', 'Change'],
+            ['Symbols',
+             str(baseline_metrics.get('symbols_count', 'N/A')),
+             str(output_attrs.get('symbols_count', 'N/A')),
+             f"-{_safe_float(comparison.get('symbols_removed_percent'), 0):.1f}%"],
+            ['Functions',
+             str(baseline_metrics.get('functions_count', 'N/A')),
+             str(output_attrs.get('functions_count', 'N/A')),
+             f"-{_safe_float(comparison.get('functions_removed_percent'), 0):.1f}%"],
+        ]
+        comparison_table = Table(comparison_data, colWidths=[1.7*inch, 1.7*inch, 1.7*inch, 1.7*inch])
+        comparison_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('PADDING', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+        ]))
+        story.append(comparison_table)
+        story.append(Spacer(1, 0.08*inch))
 
     # Output Attributes
     story.append(Paragraph("<b>Output File Attributes</b>", styles['Heading2']))
@@ -762,27 +1052,82 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
             story.append(Paragraph("<b>🔐 String Obfuscation</b>", styles['Heading2']))
             story.append(Spacer(1, 0.08*inch))
 
-            string_data = [
-                ['Total Strings Found', f"{total_strings:,}"],
-                ['Strings Encrypted', f"{encrypted_strings:,}"],
-                ['Encryption Rate', f"{encryption_pct:.1f}%"],
-                ['Method', method],
-            ]
-            string_table = Table(string_data, colWidths=[2.5*inch, 4.5*inch])
-            string_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#28a745')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTSIZE', (0, 0), (-1, -1), 10),
-                ('PADDING', (0, 0), (-1, -1), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#e8f5e9')]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
-            ]))
-            story.append(string_table)
-            story.append(Spacer(1, 0.08*inch))
+            if MATPLOTLIB_AVAILABLE and total_strings > 0:
+                try:
+                    # Create pie chart for string encryption
+                    fig, ax = plt.subplots(figsize=(5, 4), dpi=100)
+
+                    unencrypted_strings = max(0, total_strings - encrypted_strings)
+                    sizes = [encrypted_strings, unencrypted_strings]
+                    labels = [f'Encrypted\n({encrypted_strings:,})', f'Unencrypted\n({unencrypted_strings:,})']
+                    colors_string = ['#28a745', '#E8E8E8']
+
+                    wedges, texts, autotexts = ax.pie(
+                        sizes,
+                        labels=labels,
+                        autopct='%1.1f%%',
+                        colors=colors_string,
+                        startangle=90,
+                        textprops={'fontsize': 10, 'weight': 'bold'}
+                    )
+
+                    for autotext in autotexts:
+                        autotext.set_color('white' if autotext.xy[0] > 0 else 'black')
+                        autotext.set_fontsize(11)
+                        autotext.set_weight('bold')
+
+                    ax.set_title(f'String Encryption Rate: {encryption_pct:.1f}%', fontsize=12, weight='bold', pad=20)
+                    plt.tight_layout()
+
+                    # Convert to image
+                    img_buffer_string = BytesIO()
+                    plt.savefig(img_buffer_string, format='png', bbox_inches='tight', dpi=100)
+                    img_buffer_string.seek(0)
+                    plt.close(fig)
+
+                    from reportlab.platypus import Image as RLImage
+                    string_chart = RLImage(img_buffer_string, width=3.5*inch, height=2.8*inch)
+                    story.append(string_chart)
+                    story.append(Spacer(1, 0.08*inch))
+
+                except Exception as e:
+                    logger.warning(f"Failed to create string encryption chart: {e}")
+                    # Fallback to table
+                    string_data = [
+                        ['Total Strings', f"{total_strings:,}"],
+                        ['Encrypted', f"{encrypted_strings:,}"],
+                        ['Rate', f"{encryption_pct:.1f}%"],
+                    ]
+                    string_table = Table(string_data, colWidths=[2.5*inch, 4.5*inch])
+                    string_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#28a745')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 9),
+                        ('PADDING', (0, 0), (-1, -1), 8),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                    ]))
+                    story.append(string_table)
+                    story.append(Spacer(1, 0.08*inch))
+            else:
+                # Fallback if matplotlib not available or no strings
+                string_data = [
+                    ['Total Strings', f"{total_strings:,}"],
+                    ['Encrypted', f"{encrypted_strings:,}"],
+                    ['Rate', f"{encryption_pct:.1f}%"],
+                    ['Method', method],
+                ]
+                string_table = Table(string_data, colWidths=[2.5*inch, 4.5*inch])
+                string_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#28a745')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('PADDING', (0, 0), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                ]))
+                story.append(string_table)
+                story.append(Spacer(1, 0.08*inch))
 
     # Symbol Obfuscation - with real metrics
     symbol_obf = report.get('symbol_obfuscation', {})
@@ -825,28 +1170,77 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
         story.append(Spacer(1, 0.08*inch))
 
         cycles_per_cycle = cycles.get('per_cycle_metrics', [])
-        cycles_data = [['Cycle', 'Passes Applied', 'Duration (ms)']]
-        for cycle_info in cycles_per_cycle:
-            cycles_data.append([
-                str(cycle_info.get('cycle', 'N/A')),
-                ', '.join(cycle_info.get('passes_applied', [])),
-                str(cycle_info.get('duration_ms', 0))
-            ])
 
-        if len(cycles_data) > 1:
-            cycles_table = Table(cycles_data, colWidths=[1*inch, 4.5*inch, 1.5*inch])
-            cycles_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
-                ('PADDING', (0, 0), (-1, -1), 8),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f5f5f5')]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
-            ]))
-            story.append(cycles_table)
+        # Create cycle duration chart if we have multiple cycles
+        if len(cycles_per_cycle) > 0 and MATPLOTLIB_AVAILABLE:
+            try:
+                cycle_nums = [str(c.get('cycle', i+1)) for i, c in enumerate(cycles_per_cycle)]
+                durations = [int(c.get('duration_ms', 0)) for c in cycles_per_cycle]
+
+                fig, ax = plt.subplots(figsize=(6.5, 2.8), dpi=100)
+                bars = ax.bar(cycle_nums, durations, color='#3498DB', edgecolor='black', linewidth=1.5)
+
+                # Add value labels on bars
+                for bar, duration in zip(bars, durations):
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2., height,
+                           f'{duration}ms', ha='center', va='bottom', fontweight='bold', fontsize=10)
+
+                ax.set_ylabel('Duration (ms)', fontweight='bold', fontsize=11)
+                ax.set_xlabel('Cycle', fontweight='bold', fontsize=11)
+                ax.set_title('Obfuscation Cycle Execution Time', fontweight='bold', fontsize=12)
+                ax.grid(axis='y', alpha=0.3, linestyle='--')
+                plt.tight_layout()
+
+                img_buffer_cycles = BytesIO()
+                plt.savefig(img_buffer_cycles, format='png', bbox_inches='tight', dpi=100)
+                img_buffer_cycles.seek(0)
+                plt.close(fig)
+
+                from reportlab.platypus import Image as RLImage
+                cycles_chart = RLImage(img_buffer_cycles, width=5.5*inch, height=2.3*inch)
+                story.append(cycles_chart)
+                story.append(Spacer(1, 0.08*inch))
+
+            except Exception as e:
+                logger.warning(f"Failed to create cycles chart: {e}")
+                # Fallback to table
+                cycles_data = [['Cycle', 'Duration (ms)']]
+                for cycle_info in cycles_per_cycle:
+                    cycles_data.append([
+                        str(cycle_info.get('cycle', 'N/A')),
+                        str(cycle_info.get('duration_ms', 0))
+                    ])
+                if len(cycles_data) > 1:
+                    cycles_table = Table(cycles_data, colWidths=[2*inch, 3*inch])
+                    cycles_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 8),
+                        ('PADDING', (0, 0), (-1, -1), 8),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                    ]))
+                    story.append(cycles_table)
+        else:
+            # Fallback if no cycles or matplotlib unavailable
+            cycles_data = [['Cycle', 'Duration (ms)']]
+            for cycle_info in cycles_per_cycle:
+                cycles_data.append([
+                    str(cycle_info.get('cycle', 'N/A')),
+                    str(cycle_info.get('duration_ms', 0))
+                ])
+            if len(cycles_data) > 1:
+                cycles_table = Table(cycles_data, colWidths=[2*inch, 3*inch])
+                cycles_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('PADDING', (0, 0), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                ]))
+                story.append(cycles_table)
 
     # ============= ADVANCED METRICS SECTION (if available) =============
 
@@ -869,30 +1263,88 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
             cf_obfuscated = control_flow.get('obfuscated', {})
             cf_comparison = control_flow.get('comparison', {})
 
-            cf_data = [
-                ['Metric', 'Baseline', 'Obfuscated', 'Change %'],
-                ['Basic Blocks', str(cf_baseline.get('basic_blocks', 0)), str(cf_obfuscated.get('basic_blocks', 0)),
-                 f"+{cf_comparison.get('basic_blocks_added', 0)}"],
-                ['CFG Edges', str(cf_baseline.get('cfg_edges', 0)), str(cf_obfuscated.get('cfg_edges', 0)),
-                 f"+{cf_comparison.get('cfg_edges_added', 0)}"],
-                ['Cyclomatic Complexity', str(cf_baseline.get('cyclomatic_complexity', 0)),
-                 str(cf_obfuscated.get('cyclomatic_complexity', 0)),
-                 f"+{_safe_float(cf_comparison.get('complexity_increase_percent'), 0):.1f}%"],
-            ]
-            cf_table = Table(cf_data, colWidths=[2*inch, 1.6*inch, 1.6*inch, 1.6*inch])
-            cf_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('PADDING', (0, 0), (-1, -1), 10),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#ebf5fb')]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
-            ]))
-            story.append(cf_table)
-            story.append(Spacer(1, 0.08*inch))
+            # Control Flow comparison chart
+            if MATPLOTLIB_AVAILABLE:
+                try:
+                    basic_blocks_baseline = int(cf_baseline.get('basic_blocks', 0))
+                    basic_blocks_obf = int(cf_obfuscated.get('basic_blocks', 0))
+                    cyclomatic_baseline = int(cf_baseline.get('cyclomatic_complexity', 0))
+                    cyclomatic_obf = int(cf_obfuscated.get('cyclomatic_complexity', 0))
+
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5), dpi=100)
+
+                    # Basic Blocks comparison
+                    ax1.bar(['Baseline', 'Obfuscated'], [basic_blocks_baseline, basic_blocks_obf],
+                           color=['#3498DB', '#E74C3C'], edgecolor='black', linewidth=1.5)
+                    ax1.set_ylabel('Count', fontweight='bold', fontsize=10)
+                    ax1.set_title('Basic Blocks Comparison', fontweight='bold', fontsize=11)
+                    ax1.grid(axis='y', alpha=0.3, linestyle='--')
+                    ax1.text(0, basic_blocks_baseline, f'{basic_blocks_baseline}', ha='center', va='bottom', fontweight='bold')
+                    ax1.text(1, basic_blocks_obf, f'{basic_blocks_obf}', ha='center', va='bottom', fontweight='bold')
+
+                    # Cyclomatic Complexity comparison
+                    ax2.bar(['Baseline', 'Obfuscated'], [cyclomatic_baseline, cyclomatic_obf],
+                           color=['#3498DB', '#E74C3C'], edgecolor='black', linewidth=1.5)
+                    ax2.set_ylabel('Complexity', fontweight='bold', fontsize=10)
+                    ax2.set_title('Cyclomatic Complexity Comparison', fontweight='bold', fontsize=11)
+                    ax2.grid(axis='y', alpha=0.3, linestyle='--')
+                    ax2.text(0, cyclomatic_baseline, f'{cyclomatic_baseline}', ha='center', va='bottom', fontweight='bold')
+                    ax2.text(1, cyclomatic_obf, f'{cyclomatic_obf}', ha='center', va='bottom', fontweight='bold')
+
+                    plt.tight_layout()
+
+                    img_buffer_cf = BytesIO()
+                    plt.savefig(img_buffer_cf, format='png', bbox_inches='tight', dpi=100)
+                    img_buffer_cf.seek(0)
+                    plt.close(fig)
+
+                    from reportlab.platypus import Image as RLImage
+                    cf_chart = RLImage(img_buffer_cf, width=6.5*inch, height=2.5*inch)
+                    story.append(cf_chart)
+                    story.append(Spacer(1, 0.08*inch))
+
+                except Exception as e:
+                    logger.warning(f"Failed to create control flow chart: {e}")
+                    # Fallback to table
+                    cf_data = [
+                        ['Metric', 'Baseline', 'Obfuscated', 'Change'],
+                        ['Basic Blocks', str(basic_blocks_baseline), str(basic_blocks_obf),
+                         f"+{cf_comparison.get('basic_blocks_added', 0)}"],
+                        ['Cyclomatic', str(cyclomatic_baseline), str(cyclomatic_obf),
+                         f"+{_safe_float(cf_comparison.get('complexity_increase_percent'), 0):.1f}%"],
+                    ]
+                    cf_table = Table(cf_data, colWidths=[1.7*inch, 1.6*inch, 1.6*inch, 1.6*inch])
+                    cf_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 8),
+                        ('PADDING', (0, 0), (-1, -1), 8),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                    ]))
+                    story.append(cf_table)
+                    story.append(Spacer(1, 0.08*inch))
+            else:
+                # Fallback if matplotlib unavailable
+                cf_data = [
+                    ['Metric', 'Baseline', 'Obfuscated', 'Change'],
+                    ['Basic Blocks', str(cf_baseline.get('basic_blocks', 0)), str(cf_obfuscated.get('basic_blocks', 0)),
+                     f"+{cf_comparison.get('basic_blocks_added', 0)}"],
+                    ['Cyclomatic', str(cf_baseline.get('cyclomatic_complexity', 0)),
+                     str(cf_obfuscated.get('cyclomatic_complexity', 0)),
+                     f"+{_safe_float(cf_comparison.get('complexity_increase_percent'), 0):.1f}%"],
+                ]
+                cf_table = Table(cf_data, colWidths=[1.7*inch, 1.6*inch, 1.6*inch, 1.6*inch])
+                cf_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('PADDING', (0, 0), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+                ]))
+                story.append(cf_table)
+                story.append(Spacer(1, 0.08*inch))
 
             # Add Control Flow Chart
             cf_chart = create_control_flow_chart(report)
@@ -1250,6 +1702,266 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
                 "decompilation tools (Ghidra, IDA) is recommended."
             )
             story.append(Paragraph(note_text, note_style))
+
+    # ============= PROTECTION SCORE DETAILS SECTION (Integrated) =============
+    story.append(Spacer(1, 0.15*inch))
+
+    story.append(Paragraph("Protection Score Analysis", styles['Heading1']))
+    story.append(Spacer(1, 0.05*inch))
+
+    # PRCS Framework Score
+    score = _safe_float(report.get('obfuscation_score', 0))
+
+    # Score interpretation for 0-100 scale
+    if score >= 85:
+        score_interpretation = "Exceptional obfuscation with very high reverse engineering difficulty"
+    elif score >= 75:
+        score_interpretation = "Strong obfuscation with high reverse engineering difficulty"
+    elif score >= 65:
+        score_interpretation = "Solid obfuscation with moderate to high reverse engineering difficulty"
+    elif score >= 50:
+        score_interpretation = "Reasonable obfuscation with moderate reverse engineering difficulty"
+    else:
+        score_interpretation = "Basic obfuscation with minimal to moderate reverse engineering difficulty"
+
+    # Create protection score table (displayed in table format, not big)
+    protection_score_data = [
+        ['Metric', 'Score', 'Details'],
+        ['PRCS Score', f'{score:.1f}/100', score_interpretation],
+        ['Standard', 'OWASP MASTG', 'Potency 30% | Resilience 35% | Cost 20% | Stealth 15%'],
+        ['Scale', '0-100', 'Max score is practically impossible to achieve'],
+    ]
+    protection_score_table = Table(protection_score_data, colWidths=[2.0*inch, 1.5*inch, 3.5*inch])
+    protection_score_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 7),
+        ('PADDING', (0, 0), (-1, -1), 6),
+        ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f5f5f5')),
+        ('BACKGROUND', (0, 2), (-1, 2), colors.white),
+        ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#f5f5f5')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#f5f5f5'), colors.white]),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+    ]))
+    story.append(protection_score_table)
+    story.append(Spacer(1, 0.1*inch))
+
+    # Score Gauge Chart
+    if MATPLOTLIB_AVAILABLE:
+        try:
+            # Create a visual gauge for the score
+            fig, ax = plt.subplots(figsize=(5, 2.5), dpi=100)
+
+            # Create horizontal bar gauge
+            max_score = 100
+            current_score = score
+
+            # Determine color based on score
+            if current_score >= 85:
+                gauge_color = '#27AE60'  # Green
+            elif current_score >= 65:
+                gauge_color = '#F39C12'  # Orange
+            else:
+                gauge_color = '#E74C3C'  # Red
+
+            # Draw background bar
+            ax.barh(0, max_score, color='#ECF0F1', height=0.5)
+            # Draw score bar
+            ax.barh(0, current_score, color=gauge_color, height=0.5, edgecolor='black', linewidth=2)
+
+            # Add score text
+            ax.text(current_score/2, 0, f'{current_score:.1f}',
+                   ha='center', va='center', fontsize=20, fontweight='bold', color='white')
+
+            # Add min/max labels
+            ax.text(0, -0.4, '0', ha='center', fontsize=9, fontweight='bold')
+            ax.text(100, -0.4, '100', ha='center', fontsize=9, fontweight='bold')
+
+            # Remove axes
+            ax.set_xlim(-5, 105)
+            ax.set_ylim(-1, 1)
+            ax.axis('off')
+
+            plt.tight_layout()
+
+            # Convert to image
+            img_buffer_gauge = BytesIO()
+            plt.savefig(img_buffer_gauge, format='png', bbox_inches='tight', dpi=100, facecolor='white')
+            img_buffer_gauge.seek(0)
+            plt.close(fig)
+
+            from reportlab.platypus import Image as RLImage
+            gauge_chart = RLImage(img_buffer_gauge, width=4.5*inch, height=1.5*inch)
+            story.append(gauge_chart)
+        except Exception as e:
+            logger.warning(f"Failed to create score gauge: {e}")
+            pass
+
+    story.append(Spacer(1, 0.15*inch))
+
+    # PRCS Component Breakdown - PIE CHART
+    story.append(Paragraph("<b>PRCS Framework Weights</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.08*inch))
+
+    if MATPLOTLIB_AVAILABLE:
+        try:
+            # Create pie chart for PRCS weights
+            fig, ax = plt.subplots(figsize=(6, 4), dpi=100)
+
+            components = ['Potency', 'Resilience', 'Cost', 'Stealth']
+            weights = [30, 35, 20, 15]
+            colors_prcs = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3']
+
+            wedges, texts, autotexts = ax.pie(
+                weights,
+                labels=components,
+                autopct='%1.0f%%',
+                colors=colors_prcs,
+                startangle=90,
+                textprops={'fontsize': 10, 'weight': 'bold'}
+            )
+
+            # Style the percentage text
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontsize(11)
+                autotext.set_weight('bold')
+
+            ax.set_title('PRCS Component Weights', fontsize=12, weight='bold', pad=20)
+            plt.tight_layout()
+
+            # Convert to image
+            img_buffer = BytesIO()
+            plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=100)
+            img_buffer.seek(0)
+            plt.close(fig)
+
+            from reportlab.platypus import Image as RLImage
+            prcs_chart = RLImage(img_buffer, width=4*inch, height=2.8*inch)
+            story.append(prcs_chart)
+        except Exception as e:
+            logger.warning(f"Failed to create PRCS pie chart: {e}")
+            # Fallback to simple table
+            prcs_data = [
+                ['Component', 'Weight'],
+                ['Potency', '30%'],
+                ['Resilience', '35%'],
+                ['Cost', '20%'],
+                ['Stealth', '15%'],
+            ]
+            prcs_table = Table(prcs_data, colWidths=[3*inch, 2*inch])
+            prcs_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('PADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+            ]))
+            story.append(prcs_table)
+    else:
+        # Fallback if matplotlib not available
+        prcs_data = [
+            ['Component', 'Weight'],
+            ['Potency', '30%'],
+            ['Resilience', '35%'],
+            ['Cost', '20%'],
+            ['Stealth', '15%'],
+        ]
+        prcs_table = Table(prcs_data, colWidths=[3*inch, 2*inch])
+        prcs_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f6feb')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('PADDING', (0, 0), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e0e0e0')),
+        ]))
+        story.append(prcs_table)
+
+    story.append(Spacer(1, 0.1*inch))
+
+    # Protection Metrics Chart (Bar Chart)
+    story.append(Paragraph("<b>Obfuscation Metrics</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.08*inch))
+
+    if MATPLOTLIB_AVAILABLE:
+        try:
+            # Extract metrics
+            symbol_red = _safe_float(report.get('symbol_reduction', 0), 0)
+            func_red = _safe_float(report.get('function_reduction', 0), 0)
+            entropy_inc = _safe_float(report.get('entropy_increase', 0), 0)
+
+            # Normalize entropy to 0-100 scale for visualization (capped at 100)
+            entropy_normalized = min(entropy_inc * 100, 100)
+
+            # Create bar chart
+            fig, ax = plt.subplots(figsize=(6, 3.5), dpi=100)
+
+            metrics_names = ['Symbol\nReduction', 'Function\nReduction', 'Entropy\nIncrease']
+            metrics_values = [symbol_red, func_red, entropy_normalized]
+            bars_colors = ['#FF6B6B', '#4ECDC4', '#FFE66D']
+
+            bars = ax.bar(metrics_names, metrics_values, color=bars_colors, edgecolor='black', linewidth=1.5)
+
+            # Add value labels on bars
+            for bar, value in zip(bars, metrics_values):
+                height = bar.get_height()
+                ax.text(
+                    bar.get_x() + bar.get_width()/2., height,
+                    f'{value:.1f}%',
+                    ha='center', va='bottom',
+                    fontsize=11, fontweight='bold'
+                )
+
+            ax.set_ylabel('Value (%)', fontsize=11, fontweight='bold')
+            ax.set_ylim(0, 110)
+            ax.grid(axis='y', alpha=0.3, linestyle='--')
+            ax.set_axisbelow(True)
+            plt.tight_layout()
+
+            # Convert to image
+            img_buffer_metrics = BytesIO()
+            plt.savefig(img_buffer_metrics, format='png', bbox_inches='tight', dpi=100)
+            img_buffer_metrics.seek(0)
+            plt.close(fig)
+
+            from reportlab.platypus import Image as RLImage
+            metrics_chart = RLImage(img_buffer_metrics, width=4.5*inch, height=2.5*inch)
+            story.append(metrics_chart)
+        except Exception as e:
+            logger.warning(f"Failed to create metrics bar chart: {e}")
+            # Fallback to simple display
+            metrics_display = f"""<font size=8>
+            <b>Symbol Reduction:</b> {_safe_float(report.get('symbol_reduction', 0)):.1f}%<br/>
+            <b>Function Reduction:</b> {_safe_float(report.get('function_reduction', 0)):.1f}%<br/>
+            <b>Entropy Increase:</b> {_safe_float(report.get('entropy_increase', 0)):.4f}
+            </font>"""
+            story.append(Paragraph(metrics_display, styles['Normal']))
+    else:
+        # Fallback if matplotlib not available
+        metrics_display = f"""<font size=8>
+        <b>Symbol Reduction:</b> {_safe_float(report.get('symbol_reduction', 0)):.1f}%<br/>
+        <b>Function Reduction:</b> {_safe_float(report.get('function_reduction', 0)):.1f}%<br/>
+        <b>Entropy Increase:</b> {_safe_float(report.get('entropy_increase', 0)):.4f}
+        </font>"""
+        story.append(Paragraph(metrics_display, styles['Normal']))
+
+    story.append(Spacer(1, 0.1*inch))
+
+    # Research References
+    story.append(Paragraph("<b>Framework References</b>", styles['Heading2']))
+    story.append(Spacer(1, 0.05*inch))
+
+    references_text = (
+        "<font size=7><b>Standard:</b> OWASP MASTG (Potency, Resilience, Cost, Stealth)<br/>"
+        "<b>Scale:</b> 0-100 (100 is practically impossible to achieve)<br/>"
+        "<b>Rating:</b> 85+ Exceptional | 75+ Strong | 65+ Solid | 50+ Reasonable | &lt;50 Basic</font>"
+    )
+    story.append(Paragraph(references_text, styles['Normal']))
+    story.append(Spacer(1, 0.05*inch))
 
     # Build PDF
     doc.build(story)
