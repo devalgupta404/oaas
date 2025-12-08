@@ -4167,7 +4167,29 @@ function App() {
                     min="8"
                     max="32"
                     value={symbolHashLength}
-                    onChange={(e) => setSymbolHashLength(parseInt(e.target.value) || 12)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      // Allow empty or partial input while typing
+                      if (val === '' || val === '-') {
+                        setSymbolHashLength('' as any);
+                      } else {
+                        const num = parseInt(val);
+                        if (!isNaN(num)) {
+                          setSymbolHashLength(num);
+                        }
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value);
+                      // Validate and clamp on blur, default to 12 if empty
+                      if (isNaN(val) || e.target.value === '') {
+                        setSymbolHashLength(12);
+                      } else if (val < 8) {
+                        setSymbolHashLength(8);
+                      } else if (val > 32) {
+                        setSymbolHashLength(32);
+                      }
+                    }}
                   />
                 </label>
                 <label>
