@@ -65,6 +65,18 @@ def format_time(value, decimals=2):
         return "N/A"
 
 
+def format_timestamp_human_readable(timestamp_str):
+    """Convert ISO timestamp to human-readable format (IST)."""
+    try:
+        from datetime import datetime
+        # Parse ISO format: 2025-12-08T10:21:43.678471
+        dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00').split('.')[0])
+        # Format as: 8 Dec 2025, 3:30 PM IST
+        return dt.strftime('%d %b %Y, %I:%M %p')
+    except:
+        return timestamp_str
+
+
 # Matplotlib imports for chart generation
 try:
     import matplotlib
@@ -413,15 +425,15 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
         alignment=TA_CENTER,
         fontName='Helvetica-Bold'
     )
-    story.append(Paragraph("🛡️ LLVM Obfuscation Report", title_style))
+    story.append(Paragraph("🛡️ OAAS Obfuscation Report", title_style))
     story.append(Spacer(1, 0.08*inch))
 
-    # Job ID and Timestamp in small text
-    job_id = report.get('job_id', 'N/A')
+    # Timestamp in readable format (Job ID removed)
     input_params = report.get('input_parameters', {})
     timestamp = input_params.get('timestamp', 'N/A')
+    formatted_timestamp = format_timestamp_human_readable(timestamp) if timestamp != 'N/A' else 'N/A'
     source_file = input_params.get('source_file', 'Unknown')
-    story.append(Paragraph(f"<b>Job ID:</b> {job_id} | <b>Generated:</b> {timestamp}", styles['Normal']))
+    story.append(Paragraph(f"<b>Generated:</b> {formatted_timestamp}", styles['Normal']))
     story.append(Spacer(1, 0.05*inch))
 
     # Source filename prominently displayed
@@ -491,38 +503,44 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
         if display_warnings:
             story.append(Spacer(1, 0.15*inch))
 
-    # Score Section
+    # Score Section - Protection Grade
     score = _safe_float(report.get('obfuscation_score', 0))
 
-    # Table 1: Header
-    t1 = Table([['OBFUSCATION SCORE']], colWidths=[7*inch])
-    t1.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#1f6feb')),
-        ('TEXTCOLOR', (0,0), (-1,-1), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 14),
-        ('TOPPADDING', (0,0), (-1,-1), 10),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-    ]))
-    story.append(t1)
-
-    # Create a single table for the score section (score only)
-    score_data = [
+    # Create protection grade table with header and score combined
+    grade_data = [
+        ['PROTECTION GRADE'],
+        ['Based on entropy increase, symbol reduction & control flow complexity'],
         [f'{score:.1f}/100']
     ]
-    score_table = Table(score_data, colWidths=[7*inch])
-    score_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f5f5f5')),
+    grade_table = Table(grade_data, colWidths=[7*inch])
+    grade_table.setStyle(TableStyle([
+        # Header row
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1f6feb')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,0), 14),
+        ('TOPPADDING', (0,0), (-1,0), 8),
+        ('BOTTOMPADDING', (0,0), (-1,0), 6),
+        # Description row
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#1f6feb')),
+        ('TEXTCOLOR', (0,1), (-1,1), colors.white),
+        ('FONTNAME', (0,1), (-1,1), 'Helvetica'),
+        ('FONTSIZE', (0,1), (-1,1), 9),
+        ('TOPPADDING', (0,1), (-1,1), 4),
+        ('BOTTOMPADDING', (0,1), (-1,1), 8),
+        # Score row
+        ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#f5f5f5')),
+        ('TEXTCOLOR', (0,2), (-1,2), colors.HexColor('#1f6feb')),
+        ('FONTNAME', (0,2), (-1,2), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,2), (-1,2), 36),
+        ('TOPPADDING', (0,2), (-1,2), 10),
+        ('BOTTOMPADDING', (0,2), (-1,2), 10),
+        # All cells
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (0,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (0,0), 40),
-        ('TEXTCOLOR', (0,0), (0,0), colors.black),
-        ('TOPPADDING', (0,0), (0,0), 20),
-        ('BOTTOMPADDING', (0,0), (0,0), 20),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
     ]))
-    story.append(score_table)
-    story.append(Spacer(1, 0.15*inch))
+    story.append(grade_table)
+    story.append(Spacer(1, 0.08*inch))
 
     # Quick Metrics Row
     symbol_red = float(report.get('symbol_reduction', 0)) if report.get('symbol_reduction') else 0
