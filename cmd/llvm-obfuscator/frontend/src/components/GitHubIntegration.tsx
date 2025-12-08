@@ -161,7 +161,9 @@ export const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({ onFilesLoa
   const loadBranches = async (repoUrl: string, useAuth: boolean = true) => {
     try {
       setLoading(true);
-      const url = `/api/github/repo/branches?repo_url=${encodeURIComponent(repoUrl)}`;
+      // Strip .git suffix if present
+      const cleanUrl = repoUrl.endsWith('.git') ? repoUrl.slice(0, -4) : repoUrl;
+      const url = `/api/github/repo/branches?repo_url=${encodeURIComponent(cleanUrl)}`;
       const response = await fetch(url, {
         credentials: useAuth ? 'include' : 'omit'
       });
@@ -188,8 +190,10 @@ export const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({ onFilesLoa
   const loadRepoFiles = async (repoUrl: string, branch: string, useAuth: boolean = true) => {
     try {
       setLoading(true);
+      // Strip .git suffix if present
+      const cleanUrl = repoUrl.endsWith('.git') ? repoUrl.slice(0, -4) : repoUrl;
       const payload = {
-        repo_url: repoUrl,
+        repo_url: cleanUrl,
         branch: branch,
       };
 
@@ -223,8 +227,10 @@ export const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({ onFilesLoa
   const cloneRepoFast = async (repoUrl: string, branch: string, useAuth: boolean = true) => {
     try {
       setLoading(true);
+      // Strip .git suffix if present
+      const cleanUrl = repoUrl.endsWith('.git') ? repoUrl.slice(0, -4) : repoUrl;
       const payload = {
-        repo_url: repoUrl,
+        repo_url: cleanUrl,
         branch: branch,
       };
 
