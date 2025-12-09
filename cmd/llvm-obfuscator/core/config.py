@@ -149,7 +149,11 @@ class RemarksConfiguration:
 @dataclass
 class AntiDebugConfiguration:
     enabled: bool = False
-    techniques: List[str] = field(default_factory=lambda: ["ptrace", "proc_status"])  # ptrace, proc_status, parent_check, timing
+    # Linux techniques: ptrace, proc_status, parent_check, timing
+    # Windows techniques: is_debugger_present, remote_debugger, peb_flag, nt_global_flag, 
+    #                     nt_query_info, hardware_breakpoints, timing, output_debug_string
+    # Note: Linux techniques are auto-mapped to Windows equivalents when targeting Windows platform
+    techniques: List[str] = field(default_factory=lambda: ["ptrace", "proc_status"])
 
 @dataclass
 class AdvancedConfiguration:

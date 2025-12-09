@@ -329,7 +329,15 @@ class RemarksModel(BaseModel):
 
 class AntiDebugModel(BaseModel):
     enabled: bool = False
-    techniques: list[str] = Field(default_factory=lambda: ["ptrace", "proc_status"], description="Anti-debug techniques: ptrace, proc_status, parent_check, timing")
+    techniques: list[str] = Field(
+        default_factory=lambda: ["ptrace", "proc_status"],
+        description=(
+            "Anti-debug techniques. "
+            "Linux: ptrace, proc_status, parent_check, timing. "
+            "Windows: is_debugger_present, remote_debugger, peb_flag, nt_global_flag, nt_query_info, hardware_breakpoints, timing, output_debug_string. "
+            "Linux techniques are auto-mapped to Windows equivalents when targeting Windows platform."
+        )
+    )
 
 
 class VMModel(BaseModel):
