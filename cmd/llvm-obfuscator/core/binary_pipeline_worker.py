@@ -112,8 +112,16 @@ class BinaryPipelineWorker:
             return False, str(e)
 
     def step1_ghidra_lifting(self) -> bool:
-        """Step 1: Export CFG using Ghidra via the ghidra-lifter service."""
+        """Step 1: Export CFG using Ghidra and convert to McSema protobuf format.
+
+        Uses the ghidra-lifter service /lift/full endpoint which:
+        1. Runs Ghidra to export JSON CFG
+        2. Converts JSON to McSema protobuf format
+
+        Output: McSema .cfg protobuf file ready for mcsema-lift
+        """
         import requests
+        import shutil
 
         input_exe = self.job_dir / "input.exe"
 
@@ -121,45 +129,54 @@ class BinaryPipelineWorker:
             self.logger.log("input.exe not found", level="ERROR")
             return False
 
-        self.logger.log("Starting Ghidra CFG Export via ghidra-lifter service...")
+        self.logger.log("Starting Ghidra CFG Export + McSema Conversion via ghidra-lifter service...")
 
         # The ghidra-lifter service is accessible via Docker network
-        # Service name is 'ghidra-lifter' and it listens on port 5000
         ghidra_lifter_url = os.getenv("GHIDRA_LIFTER_URL", "http://ghidra-lifter:5000")
 
         try:
-            # First copy the binary to the shared volume so ghidra-lifter can access it
-            # The /app/binaries directory is shared between backend and ghidra-lifter
+            # Copy the binary to the shared volume so ghidra-lifter can access it
             shared_binary_path = Path("/app/binaries") / f"{self.job_dir.name}_input.exe"
-            import shutil
             shutil.copy(input_exe, shared_binary_path)
             self.logger.log(f"Copied binary to shared volume: {shared_binary_path}")
 
-            # Output CFG path in the shared reports directory
-            output_cfg_path = str(self.cfg_dir / "input.cfg")
-
-            # Call ghidra-lifter service via HTTP
-            self.logger.log(f"Calling ghidra-lifter at {ghidra_lifter_url}/lift/file")
+            # Call the full pipeline endpoint which does:
+            # 1. Ghidra CFG Export (JSON)
+            # 2. JSON → McSema Protobuf Conversion
+            self.logger.log(f"Calling ghidra-lifter at {ghidra_lifter_url}/lift/full")
 
             response = requests.post(
-                f"{ghidra_lifter_url}/lift/file",
+                f"{ghidra_lifter_url}/lift/full",
                 json={
                     "binary_path": str(shared_binary_path),
-                    "output_cfg_path": output_cfg_path
+                    "output_dir": str(self.cfg_dir),
+                    "arch": "amd64"
                 },
-                timeout=300  # 5 minute timeout
+                timeout=600  # 10 minute timeout (Ghidra + conversion)
             )
 
             if response.status_code == 200:
                 result = response.json()
                 if result.get("success"):
-                    self.logger.log(f"Ghidra CFG export successful: {result.get('stats', {})}")
-                    # Verify the CFG file was created
-                    if (self.cfg_dir / "input.cfg").exists():
-                        self.logger.log("CFG file verified at expected location")
+                    # Store paths to both CFG files
+                    json_cfg = result.get("json_cfg_file")
+                    mcsema_cfg = result.get("mcsema_cfg_file")
+
+                    self.logger.log(f"Ghidra CFG export successful")
+                    self.logger.log(f"  JSON CFG: {json_cfg}")
+                    self.logger.log(f"  McSema CFG: {mcsema_cfg}")
+                    self.logger.log(f"  Ghidra stats: {result.get('ghidra_stats', {})}")
+                    self.logger.log(f"  McSema stats: {result.get('mcsema_stats', {})}")
+
+                    # Save the McSema CFG path for next stage
+                    self._mcsema_cfg_path = mcsema_cfg
+
+                    # Verify the McSema CFG file was created
+                    if mcsema_cfg and Path(mcsema_cfg).exists():
+                        self.logger.log("McSema CFG file verified at expected location")
                         return True
                     else:
-                        self.logger.log("CFG file not found at expected location", level="ERROR")
+                        self.logger.log("McSema CFG file not found at expected location", level="ERROR")
                         return False
                 else:
                     self.logger.log(f"Ghidra lifter returned error: {result.get('error')}", level="ERROR")
@@ -173,33 +190,88 @@ class BinaryPipelineWorker:
             self.logger.log("Make sure ghidra-lifter container is running and healthy", level="ERROR")
             return False
         except requests.exceptions.Timeout:
-            self.logger.log("Ghidra lifter request timeout (5 minutes)", level="ERROR")
+            self.logger.log("Ghidra lifter request timeout (10 minutes)", level="ERROR")
             return False
         except Exception as e:
             self.logger.log(f"Unexpected error calling ghidra-lifter: {e}", level="ERROR")
             return False
 
     def step2_mcsema_lifting(self) -> bool:
-        """Step 2: Lift CFG to LLVM IR using McSema."""
-        cfg_file = self.cfg_dir / "input.cfg"
-        if not cfg_file.exists():
-            self.logger.log("CFG file not found", level="ERROR")
+        """Step 2: Lift McSema CFG protobuf to LLVM IR using mcsema-lift service.
+
+        Uses the mcsema-lift service which runs mcsema-lift-11.0 binary.
+        Input: McSema .cfg protobuf (from step 1)
+        Output: LLVM 11 bitcode (.bc)
+        """
+        import requests
+
+        # Get McSema CFG path from step 1
+        cfg_file = getattr(self, '_mcsema_cfg_path', None)
+        if not cfg_file:
+            # Fallback to expected location
+            cfg_file = str(self.cfg_dir / "input_mcsema.cfg")
+
+        if not Path(cfg_file).exists():
+            self.logger.log(f"McSema CFG file not found: {cfg_file}", level="ERROR")
             return False
 
-        script_path = Path("/app/binary_obfuscation_pipeline/mcsema_impl/lifter/run_lift.sh")
+        self.logger.log(f"Starting McSema LLVM Lifting via mcsema-lift service...")
+        self.logger.log(f"Input CFG: {cfg_file}")
 
-        if not script_path.exists():
-            self.logger.log(f"run_lift.sh not found at {script_path}", level="ERROR")
+        # The mcsema-lift service is accessible via Docker network
+        mcsema_lift_url = os.getenv("MCSEMA_LIFT_URL", "http://mcsema-lift:5002")
+
+        try:
+            # Output bitcode path
+            output_bc_path = str(self.ir_dir / "program.bc")
+
+            self.logger.log(f"Calling mcsema-lift at {mcsema_lift_url}/lift/file")
+
+            response = requests.post(
+                f"{mcsema_lift_url}/lift/file",
+                json={
+                    "cfg_path": cfg_file,
+                    "output_path": output_bc_path,
+                    "arch": "amd64",
+                    "os": "windows"
+                },
+                timeout=600  # 10 minute timeout for lifting
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success"):
+                    bc_file = result.get("bc_file")
+                    bc_size = result.get("size", 0)
+
+                    self.logger.log(f"McSema lifting successful")
+                    self.logger.log(f"  Output BC: {bc_file}")
+                    self.logger.log(f"  Size: {bc_size} bytes")
+
+                    # Verify the BC file was created
+                    if bc_file and Path(bc_file).exists():
+                        self.logger.log("LLVM bitcode file verified at expected location")
+                        return True
+                    else:
+                        self.logger.log("LLVM bitcode file not found at expected location", level="ERROR")
+                        return False
+                else:
+                    self.logger.log(f"McSema lift returned error: {result.get('error')}", level="ERROR")
+                    return False
+            else:
+                self.logger.log(f"McSema lift HTTP error: {response.status_code} - {response.text}", level="ERROR")
+                return False
+
+        except requests.exceptions.ConnectionError as e:
+            self.logger.log(f"Cannot connect to mcsema-lift service: {e}", level="ERROR")
+            self.logger.log("Make sure mcsema-lift container is running and healthy", level="ERROR")
             return False
-
-        cmd = [
-            str(script_path),
-            str(cfg_file),
-            str(self.ir_dir)
-        ]
-
-        success, output = self.run_command(cmd, "McSema LLVM Lifting")
-        return success and (self.ir_dir / "program.bc").exists()
+        except requests.exceptions.Timeout:
+            self.logger.log("McSema lift request timeout (10 minutes)", level="ERROR")
+            return False
+        except Exception as e:
+            self.logger.log(f"Unexpected error calling mcsema-lift: {e}", level="ERROR")
+            return False
 
     def step3_ir_version_upgrade(self) -> bool:
         """Step 3: Upgrade LLVM IR to LLVM 22."""

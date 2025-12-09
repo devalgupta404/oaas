@@ -282,6 +282,141 @@ def lift_binary():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/convert/mcsema', methods=['POST'])
+def convert_to_mcsema():
+    """
+    Convert Ghidra JSON CFG to McSema protobuf format.
+
+    Expects JSON:
+    {
+        "json_cfg_path": "/app/reports/program.json",
+        "output_cfg_path": "/app/reports/program.cfg",  // optional
+        "arch": "amd64"                                 // optional, default: amd64
+    }
+
+    Returns:
+    - cfg_file: path to generated McSema .cfg protobuf
+    - stats: conversion statistics
+    """
+    try:
+        data = request.get_json()
+        if not data or 'json_cfg_path' not in data:
+            return jsonify({'error': 'Missing json_cfg_path in request'}), 400
+
+        json_cfg_path = data['json_cfg_path']
+        if not os.path.exists(json_cfg_path):
+            return jsonify({'error': f'JSON CFG not found: {json_cfg_path}'}), 404
+
+        # Output path (default: replace .json with .cfg)
+        output_cfg = data.get('output_cfg_path')
+        if not output_cfg:
+            output_cfg = json_cfg_path.replace('.json', '.cfg')
+            if output_cfg == json_cfg_path:
+                output_cfg = json_cfg_path + '.cfg'
+
+        arch = data.get('arch', 'amd64')
+
+        logger.info(f"Converting JSON CFG to McSema protobuf: {json_cfg_path} -> {output_cfg}")
+
+        # Import and run the converter
+        try:
+            from json_to_mcsema import convert_json_to_mcsema
+            stats = convert_json_to_mcsema(json_cfg_path, output_cfg, arch)
+
+            return jsonify({
+                'success': True,
+                'cfg_file': output_cfg,
+                'stats': stats,
+                'next_stage': 'READY_FOR_MCSEMA_LIFT',
+                'next_action': f'mcsema-lift-11.0 --cfg {output_cfg} --output program.bc --arch {arch} --os windows'
+            }), 200
+
+        except ImportError as e:
+            logger.error(f"Could not import json_to_mcsema: {e}")
+            return jsonify({
+                'success': False,
+                'error': f'Converter module not available: {e}'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Convert endpoint error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/lift/full', methods=['POST'])
+def lift_full_pipeline():
+    """
+    Full pipeline: Binary -> Ghidra JSON CFG -> McSema protobuf CFG.
+
+    Combines /lift/file and /convert/mcsema into a single call.
+
+    Expects JSON:
+    {
+        "binary_path": "/app/binaries/program.exe",
+        "output_dir": "/app/reports",               // optional
+        "arch": "amd64"                             // optional
+    }
+
+    Returns:
+    - json_cfg_file: path to intermediate JSON CFG
+    - mcsema_cfg_file: path to final McSema .cfg protobuf
+    - stats: combined statistics
+    """
+    try:
+        data = request.get_json()
+        if not data or 'binary_path' not in data:
+            return jsonify({'error': 'Missing binary_path in request'}), 400
+
+        binary_path = data['binary_path']
+        if not os.path.exists(binary_path):
+            return jsonify({'error': f'Binary not found: {binary_path}'}), 404
+
+        output_dir = data.get('output_dir', REPORTS_DIR)
+        arch = data.get('arch', 'amd64')
+        os.makedirs(output_dir, exist_ok=True)
+
+        binary_name = os.path.basename(binary_path)
+        base_name = binary_name.replace('.exe', '').replace('.dll', '')
+
+        # Stage 1: Ghidra CFG Export (JSON)
+        json_cfg_path = os.path.join(output_dir, f"{base_name}_ghidra.json")
+        logger.info(f"Stage 1: Ghidra CFG Export -> {json_cfg_path}")
+
+        lift_result = lifter.lift(binary_path, json_cfg_path)
+        if not lift_result['success']:
+            return jsonify({
+                'success': False,
+                'error': f"Stage 1 (Ghidra CFG) failed: {lift_result['error']}"
+            }), 500
+
+        # Stage 2: Convert to McSema protobuf
+        mcsema_cfg_path = os.path.join(output_dir, f"{base_name}_mcsema.cfg")
+        logger.info(f"Stage 2: McSema Protobuf Convert -> {mcsema_cfg_path}")
+
+        try:
+            from json_to_mcsema import convert_json_to_mcsema
+            convert_stats = convert_json_to_mcsema(json_cfg_path, mcsema_cfg_path, arch)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f"Stage 2 (McSema Convert) failed: {e}"
+            }), 500
+
+        return jsonify({
+            'success': True,
+            'json_cfg_file': json_cfg_path,
+            'mcsema_cfg_file': mcsema_cfg_path,
+            'ghidra_stats': lift_result['stats'],
+            'mcsema_stats': convert_stats,
+            'next_stage': 'READY_FOR_MCSEMA_LIFT',
+            'next_action': f'mcsema-lift-11.0 --cfg {mcsema_cfg_path} --output {base_name}.bc --arch {arch} --os windows'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Full pipeline endpoint error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/lift/file', methods=['POST'])
 def lift_file():
     """

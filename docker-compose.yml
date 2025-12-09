@@ -7,6 +7,7 @@ services:
     environment:
       - OBFUSCATOR_DISABLE_AUTH=true
       - GHIDRA_LIFTER_URL=http://ghidra-lifter:5000
+      - MCSEMA_LIFT_URL=http://mcsema-lift:5002
     volumes:
       - ./cmd/llvm-obfuscator/reports:/app/reports
       - ./cmd/llvm-obfuscator/binaries:/app/binaries
@@ -22,6 +23,8 @@ services:
       start_period: 30s
     depends_on:
       ghidra-lifter:
+        condition: service_healthy
+      mcsema-lift:
         condition: service_healthy
     networks:
       - obfuscator-network
@@ -45,6 +48,29 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    networks:
+      - obfuscator-network
+
+  mcsema-lift:
+    build:
+      context: .
+      dockerfile: binary_obfuscation_pipeline/mcsema_impl/mcsema_lift/Dockerfile
+    image: pb-mcsema-lift:latest
+    platform: linux/amd64
+    volumes:
+      - ./cmd/llvm-obfuscator/reports:/app/reports
+      - ./cmd/llvm-obfuscator/binaries:/app/binaries
+      - binary_jobs:/app/binary_jobs
+    expose:
+      - "5002"
+    ports:
+      - "5002:5002"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5002/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - obfuscator-network
 

@@ -45,10 +45,12 @@ RUN mkdir -p /opt/ghidra && \
         /opt/ghidra/ghidra_11.2.1_PUBLIC/support/launch.sh
 
 # Install Python dependencies for the lifter script
+# protobuf is required for McSema CFG conversion
 RUN pip install --no-cache-dir \
     flask \
     requests \
-    pyyaml
+    pyyaml \
+    protobuf
 
 # Copy the Ghidra lifter scripts
 COPY lifter_script/ /app/lifter_script/
