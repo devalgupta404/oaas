@@ -461,6 +461,11 @@ class LLVMObfuscator:
         upx_result = None
         if config.advanced.upx_packing.enabled:
             try:
+                # Initialize UPX packer with custom path from config (lazy initialization)
+                custom_upx_path = config.advanced.upx_packing.custom_upx_path
+                self.upx_packer = UPXPacker(custom_upx_path=custom_upx_path)
+                if custom_upx_path:
+                    self.logger.info(f"Using custom UPX binary: {custom_upx_path}")
                 self.logger.info("Applying UPX compression to final binary...")
                 upx_result = self.upx_packer.pack(
                     binary_path=output_binary,
