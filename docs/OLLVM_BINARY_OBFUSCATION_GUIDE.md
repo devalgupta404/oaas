@@ -1197,6 +1197,74 @@ ld.lld-22: error: ... relocation ... requires dynamic relocation
 
 ---
 
+## CRITICAL: McSema Recompilation Limitation (2025-12-09)
+
+### Problem Discovery
+
+During testing, we discovered that **McSema-lifted binaries cannot be recompiled to working executables** due to fundamental architectural limitations.
+
+### Root Cause: Hardcoded Absolute Addresses
+
+McSema generates inline assembly trampolines with **hardcoded absolute virtual addresses** from the original binary:
+
+```llvm
+; From lifted IR - address 0x1400014a0 is from ORIGINAL binary
+define private void @__do_global_dtors() #9 {
+  call void asm sideeffect "pushq $0;pushq %rax;movq $$0x1400014a0, %rax;...",
+       "*m,*m,~{dirflag},~{fpsr},~{flags}"(...)
+  ret void
+}
+```
+
+These addresses (`0x1400014a0`, `0x140001440`, etc.) were valid in the original binary's memory layout but are meaningless in the recompiled binary which has a completely different section layout.
+
+### Why It Fails
+
+1. **Trampoline mechanism**: McSema uses inline assembly to save state and dispatch to lifted functions
+2. **Return addresses**: Hardcoded return addresses assume original binary's code positions
+3. **Section layout differs**: Even with same base address (`--image-base=0x140000000`), sections are arranged differently
+4. **Non-relocatable code**: The lifted IR is fundamentally NOT position-independent
+
+### What We Tried
+
+| Approach | Result |
+|----------|--------|
+| Link with `-nostartfiles` | Compiles but crashes - wrong addresses |
+| Set `--image-base=0x140000000` | Same base but different section layout |
+| Link with CRT libraries | Symbol conflicts with lifted CRT |
+| Use 64-bit with runtime_amd64.bc | Same hardcoded address problem |
+
+### McSema's Intended Use Cases
+
+McSema is designed for:
+- **Analysis/instrumentation** - not standalone execution
+- **Emulator-based rehosting** - where memory layout is simulated
+- **In-place binary patching** - modifying original, not creating new
+- **Static analysis** - extracting CFG for research
+
+It is **NOT designed for**:
+- Creating new standalone executables
+- Binary-to-binary transformation
+- Code portability across different layouts
+
+### Recommended Alternatives for Binary Obfuscation
+
+| Lifter | Recompilation Support | Notes |
+|--------|----------------------|-------|
+| **RetDec** | ✅ Good | Produces cleaner LLVM IR, actively maintained |
+| **rev.ng** | ✅ Good | Modern lifter, designed for recompilation |
+| **Binary Ninja** | ✅ Good | Commercial, excellent recompilation |
+| **Ghidra + P-Code** | ⚠️ Partial | Requires custom backend |
+| **McSema** | ❌ Poor | Not designed for recompilation |
+
+### Next Steps
+
+1. **Short-term**: Document limitation, adjust expectations
+2. **Medium-term**: Evaluate RetDec or rev.ng as McSema replacement
+3. **Long-term**: Build custom lifter with recompilation support
+
+---
+
 ## Successful End-to-End Pipeline Test (2025-12-09)
 
 ### Overview
