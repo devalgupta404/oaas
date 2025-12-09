@@ -299,7 +299,7 @@ body {
   letter-spacing: 1px;
 }
 
-/* Input Section Header */
+
 .input-section-header {
   display: flex;
   justify-content: space-between;
@@ -1296,7 +1296,7 @@ body {
 
 /* ========== GLASSMORPHISM & ANIMATIONS FOR METRICS DASHBOARD ========== */
 
-/* Fade-in animation */
+/* Fade-in animations */
 @keyframes fadeIn {
   from {
     opacity: 0;
