@@ -152,6 +152,9 @@ class UPXPacker:
             shutil.copy2(binary_path, backup_path)
             self.logger.debug(f"Created backup: {backup_path}")
         
+        # Detect if this is a Windows binary
+        is_windows_binary = self._is_windows_binary(binary_path)
+        
         # Build UPX command
         cmd = [str(self.upx_binary)]
         
@@ -163,8 +166,11 @@ class UPXPacker:
             cmd.extend(self.COMPRESSION_LEVELS["best"])
         
         # Add LZMA compression (better compression ratio)
-        if use_lzma:
+        # NOTE: LZMA can cause "bad loader" errors on Windows binaries cross-compiled from Linux
+        if use_lzma and not is_windows_binary:
             cmd.append("--lzma")
+        elif use_lzma and is_windows_binary:
+            self.logger.info("Skipping LZMA for Windows binary (can cause 'bad loader' errors)")
         
         # Force packing (overwrite if already packed)
         if force:
@@ -185,6 +191,132 @@ class UPXPacker:
             
             # Check if packing succeeded
             if result.returncode != 0:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                
+                # Check for "NotCompressibleException" - binary too small or already optimized
+                if "notcompressible" in error_msg.lower():
+                    self.logger.warning("Binary not compressible - trying with --force-compress...")
+                    
+                    # Restore original first
+                    if backup_path and backup_path.exists():
+                        shutil.copy2(backup_path, binary_path)
+                    
+                    # Try with --force which forces compression even for small binaries
+                    force_cmd = [str(self.upx_binary), "--best", "--force", str(binary_path)]
+                    self.logger.info(f"Retrying UPX with force: {' '.join(force_cmd)}")
+                    
+                    force_result = subprocess.run(
+                        force_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                    
+                    if force_result.returncode == 0:
+                        packed_size = get_file_size(binary_path)
+                        compression_ratio = (1 - packed_size / original_size) * 100 if original_size > 0 else 0
+                        
+                        self.logger.info(f"UPX force packing successful: {compression_ratio:.1f}% reduction")
+                        
+                        return {
+                            "status": "success",
+                            "original_size": original_size,
+                            "packed_size": packed_size,
+                            "compression_ratio": round(compression_ratio, 2),
+                            "compression_level": "best",
+                            "lzma": False,
+                            "note": "Used --force due to NotCompressibleException",
+                            "backup_path": str(backup_path) if preserve_original and backup_path else None,
+                        }
+                    else:
+                        # Force didn't work either - skip gracefully
+                        self.logger.info("Binary not compressible even with --force - UPX skipped")
+                        if backup_path and backup_path.exists():
+                            shutil.move(str(backup_path), str(binary_path))
+                        return {
+                            "status": "skipped",
+                            "reason": "Binary not compressible (too small or already optimized)",
+                            "original_size": original_size,
+                        }
+                
+                # Check for "bad loader" error - common with Windows binaries
+                if "bad loader" in error_msg.lower() or "internalerror" in error_msg.lower():
+                    self.logger.warning("UPX 'bad loader' error - retrying without LZMA...")
+                    
+                    # Restore original first
+                    if backup_path and backup_path.exists():
+                        shutil.copy2(backup_path, binary_path)
+                    
+                    # Build simpler command without LZMA
+                    retry_cmd = [str(self.upx_binary)]
+                    if compression_level in self.COMPRESSION_LEVELS:
+                        retry_cmd.extend(self.COMPRESSION_LEVELS[compression_level])
+                    if force:
+                        retry_cmd.append("--force")
+                    retry_cmd.append(str(binary_path))
+                    
+                    self.logger.info(f"Retrying UPX without LZMA: {' '.join(retry_cmd)}")
+                    retry_result = subprocess.run(
+                        retry_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                    
+                    if retry_result.returncode == 0:
+                        # Retry succeeded!
+                        packed_size = get_file_size(binary_path)
+                        compression_ratio = (1 - packed_size / original_size) * 100 if original_size > 0 else 0
+                        
+                        self.logger.info(
+                            f"UPX packing successful (without LZMA): {original_size} → {packed_size} bytes "
+                            f"({compression_ratio:.1f}% reduction)"
+                        )
+                        
+                        return {
+                            "status": "success",
+                            "original_size": original_size,
+                            "packed_size": packed_size,
+                            "compression_ratio": round(compression_ratio, 2),
+                            "compression_level": compression_level,
+                            "lzma": False,  # LZMA was disabled
+                            "note": "LZMA disabled due to Windows PE compatibility",
+                            "backup_path": str(backup_path) if preserve_original and backup_path else None,
+                        }
+                    else:
+                        # Still failed - try with minimal options
+                        self.logger.warning("UPX retry failed - trying with minimal options...")
+                        
+                        if backup_path and backup_path.exists():
+                            shutil.copy2(backup_path, binary_path)
+                        
+                        minimal_cmd = [str(self.upx_binary), "--force", str(binary_path)]
+                        self.logger.info(f"Final UPX attempt: {' '.join(minimal_cmd)}")
+                        
+                        minimal_result = subprocess.run(
+                            minimal_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                        )
+                        
+                        if minimal_result.returncode == 0:
+                            packed_size = get_file_size(binary_path)
+                            compression_ratio = (1 - packed_size / original_size) * 100 if original_size > 0 else 0
+                            
+                            self.logger.info(f"UPX minimal packing successful: {compression_ratio:.1f}% reduction")
+                            
+                            return {
+                                "status": "success",
+                                "original_size": original_size,
+                                "packed_size": packed_size,
+                                "compression_ratio": round(compression_ratio, 2),
+                                "compression_level": "default",
+                                "lzma": False,
+                                "note": "Used minimal UPX options due to PE compatibility issues",
+                                "backup_path": str(backup_path) if preserve_original and backup_path else None,
+                            }
+                
                 # Restore backup if packing failed
                 if backup_path and backup_path.exists():
                     shutil.move(str(backup_path), str(binary_path))
@@ -197,7 +329,7 @@ class UPXPacker:
                 
                 return {
                     "status": "failed",
-                    "error": result.stderr,
+                    "error": error_msg,
                     "original_size": original_size,
                 }
             
@@ -246,6 +378,41 @@ class UPXPacker:
         except Exception as e:
             self.logger.debug(f"Could not check if binary is packed: {e}")
             return False
+    
+    def _is_windows_binary(self, binary_path: Path) -> bool:
+        """Check if a binary is a Windows PE executable.
+        
+        Windows PE files start with "MZ" magic bytes, followed by PE signature.
+        Also checks file extension as a secondary indicator.
+        """
+        # Check file extension first
+        if binary_path.suffix.lower() in ['.exe', '.dll', '.sys', '.scr']:
+            return True
+        
+        try:
+            with open(binary_path, "rb") as f:
+                # Check for MZ header (DOS stub)
+                magic = f.read(2)
+                if magic != b'MZ':
+                    return False
+                
+                # Read PE header offset from DOS header at offset 0x3C
+                f.seek(0x3C)
+                pe_offset_bytes = f.read(4)
+                if len(pe_offset_bytes) < 4:
+                    return False
+                
+                pe_offset = int.from_bytes(pe_offset_bytes, 'little')
+                
+                # Check for PE signature at that offset
+                f.seek(pe_offset)
+                pe_sig = f.read(4)
+                return pe_sig == b'PE\x00\x00'
+                
+        except Exception as e:
+            self.logger.debug(f"Could not check if binary is Windows PE: {e}")
+            # Fall back to extension check
+            return binary_path.suffix.lower() in ['.exe', '.dll', '.sys', '.scr']
     
     def unpack(self, binary_path: Path) -> bool:
         """
