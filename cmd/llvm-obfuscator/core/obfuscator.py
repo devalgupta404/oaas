@@ -31,6 +31,13 @@ from .utils import (
     summarize_symbols,
 )
 
+# ✅ NEW: Import platform-aware metrics collector (Windows PE support)
+try:
+    from phoronix.scripts.collect_obfuscation_metrics import MetricsCollector
+    HAS_METRICS_COLLECTOR = True
+except ImportError:
+    HAS_METRICS_COLLECTOR = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,6 +83,27 @@ class LLVMObfuscator:
         self._baseline_ir_file = None  # Store baseline IR file path for BCF analysis
         self._obfuscated_ir_file = None  # Store obfuscated IR file path for BCF analysis
         self._mlir_metrics = {}  # Store MLIR pass metrics (string/symbol encryption counts)
+        # ✅ NEW: Initialize metrics collector for platform-aware entropy
+        self._metrics_collector = MetricsCollector() if HAS_METRICS_COLLECTOR else None
+
+    def _get_text_entropy(self, binary_path: Path) -> float:
+        """Get entropy of .text section with platform awareness (Windows PE support)."""
+        if not binary_path.exists():
+            return 0.0
+
+        # Try to use platform-aware metrics collector first
+        if self._metrics_collector:
+            try:
+                metrics = self._metrics_collector._analyze_binary(binary_path)
+                if metrics and metrics.text_entropy > 0:
+                    self.logger.debug(f"✅ Platform-aware entropy for {binary_path.name}: {metrics.text_entropy:.3f}")
+                    return metrics.text_entropy
+            except Exception as e:
+                self.logger.debug(f"MetricsCollector failed, using fallback: {e}")
+
+        # Fallback: use generic entropy on whole binary
+        self.logger.debug(f"⚠️ Using generic entropy calculation for {binary_path.name}")
+        return self._safe_entropy(binary_path.read_bytes(), str(binary_path))
 
     def _get_bundled_plugin_path(self, target_platform: Optional[Platform] = None) -> Optional[Path]:
         """Auto-detect bundled OLLVM plugin for current or target platform."""
@@ -457,11 +485,14 @@ class LLVMObfuscator:
         file_size = get_file_size(output_binary)
         sections = list_sections(output_binary)
         symbols_count, functions_count = summarize_symbols(output_binary)
-        # ✅ FIX: Use safe entropy calculation with validation
-        entropy = self._safe_entropy(output_binary.read_bytes() if output_binary.exists() else b"", "output_binary")
+        # ✅ FIXED: Use platform-aware entropy calculation (Windows PE support)
+        entropy = self._get_text_entropy(output_binary)
 
         # ✅ NEW: Get BCF metrics from compilation result (or default to empty)
         bcf_metrics = cycle_result.get("bcf_metrics", {}) if cycle_result else {}
+
+        # ✅ NEW: Extract obfuscated IR metrics for Potency calculation
+        obf_ir_metrics = cycle_ir_metrics.get("obfuscated", {}) if cycle_ir_metrics else {}
 
         base_metrics = self._estimate_metrics(
             source_file=source_file,
@@ -476,6 +507,7 @@ class LLVMObfuscator:
             functions_count=functions_count,
             file_size=file_size,
             bcf_metrics=bcf_metrics,
+            obf_ir_metrics=obf_ir_metrics,
         )
 
         job_data = {
@@ -2360,8 +2392,8 @@ class LLVMObfuscator:
                 binary_format = detect_binary_format(baseline_binary)
                 sections = list_sections(baseline_binary)
                 symbols_count, functions_count = summarize_symbols(baseline_binary)
-                # ✅ FIX: Use safe entropy calculation with validation
-                entropy = self._safe_entropy(baseline_binary.read_bytes(), "baseline_binary")
+                # ✅ FIXED: Use platform-aware entropy calculation (Windows PE support)
+                entropy = self._get_text_entropy(baseline_binary)
 
                 return {
                     "file_size": file_size,
@@ -2395,6 +2427,7 @@ class LLVMObfuscator:
         functions_count: int = 0,
         file_size: int = 0,
         bcf_metrics: Optional[Dict] = None,
+        obf_ir_metrics: Optional[Dict] = None,
     ) -> Dict:
         """Calculate real metrics from actual binary analysis, not estimates."""
         # ✅ FIX: Calculate real symbol/function reduction from baseline vs obfuscated
@@ -2553,7 +2586,8 @@ class LLVMObfuscator:
         # Measure: Cyclomatic complexity increase
         # Higher CC increase = more confusing code for humans
         cc_baseline = baseline_metrics.get('cyclomatic_complexity', 1) if baseline_metrics else 1
-        cc_obfuscated = baseline_metrics.get('cyclomatic_complexity', 1) if baseline_metrics else 1
+        # ✅ CRITICAL FIX: Use OBFUSCATED IR metrics, not baseline metrics again!
+        cc_obfuscated = obf_ir_metrics.get('cyclomatic_complexity', cc_baseline) if obf_ir_metrics else cc_baseline
 
         cc_increase_pct = ((cc_obfuscated - cc_baseline) / max(cc_baseline, 1)) * 100 if cc_baseline > 0 else 0
 

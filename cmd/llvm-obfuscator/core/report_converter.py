@@ -448,6 +448,22 @@ def json_to_pdf(report: Dict[str, Any]) -> bytes:
     story.append(Paragraph(f"📄 <b>Source File:</b> <font color='#28a745'>{_safe_str(source_file)}</font>", source_style))
     story.append(Spacer(1, 0.08*inch))
 
+    # ✅ NEW: Platform and binary format metadata (for Windows score fix transparency)
+    metadata = report.get('metadata', {})
+    if metadata:
+        platform = _safe_str(metadata.get('platform'), 'unknown').upper()
+        binary_format = _safe_str(metadata.get('binary_format'), 'unknown')
+        extraction_method = _safe_str(metadata.get('metric_extraction_method'), 'unknown')
+
+        platform_info = f"📊 <b>Target Platform:</b> {platform} ({binary_format})"
+        story.append(Paragraph(platform_info, source_style))
+        story.append(Spacer(1, 0.03*inch))
+
+        # Add extraction method note in smaller text
+        extraction_note = f"<font size='8' color='#666666'>Metrics extracted using: {extraction_method}</font>"
+        story.append(Paragraph(extraction_note, styles['Normal']))
+        story.append(Spacer(1, 0.08*inch))
+
     # Horizontal line separator
     from reportlab.platypus import HRFlowable
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#e0e0e0')))
