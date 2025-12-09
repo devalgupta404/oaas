@@ -357,7 +357,6 @@ export const BinaryCFGVisualizer: React.FC<BinaryCFGVisualizerProps> = ({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '1.2em' }}>🔍</span>
             Binary CFG Visualization
           </h4>
           {selectedFunction ? (

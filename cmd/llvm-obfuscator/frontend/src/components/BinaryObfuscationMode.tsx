@@ -127,6 +127,8 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
   const [error, setError] = useState<string | null>(null);
   const [validationWarning, setValidationWarning] = useState<FileValidationError | null>(null);
   const [logsAutoScroll, setLogsAutoScroll] = useState(true);
+  const [demos, setDemos] = useState<any[]>([]);
+  const [selectedDemo, setSelectedDemo] = useState<string>('');
   const [showLogsPanel, setShowLogsPanel] = useState(true);
   const [isCancelling, setIsCancelling] = useState(false);
   const [showModeSwitchConfirmation, setShowModeSwitchConfirmation] = useState(false);
@@ -154,6 +156,64 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
       }
     };
   }, []);
+
+  // Load demo programs
+  useEffect(() => {
+    const loadDemos = async () => {
+      try {
+        const response = await fetch('/demo_binaries/demos.json');
+        const data = await response.json();
+        setDemos(data.demos || []);
+      } catch (err) {
+        console.warn('Failed to load demo programs:', err);
+      }
+    };
+    loadDemos();
+  }, []);
+
+  // Handle demo selection
+  const handleDemoSelect = async (demoId: string) => {
+    if (!demoId) return;
+
+    const demo = demos.find(d => d.id === demoId);
+    if (!demo) return;
+
+    setSelectedDemo(demoId);
+    setError(null);
+    setValidationWarning(null);
+
+    try {
+      // Fetch the demo binary
+      const response = await fetch(`/demo_binaries/${demo.filename}`);
+      if (!response.ok) throw new Error('Failed to load demo binary');
+
+      const blob = await response.blob();
+      const file = new File([blob], demo.filename, { type: 'application/octet-stream' });
+
+      // Validate and set file
+      const validationError = validateBinaryFile(file);
+      if (validationError) {
+        setError(`Demo validation failed: ${validationError.message}`);
+        setValidationWarning(validationError);
+        return;
+      }
+
+      // Check PE signature
+      const isPE = await checkPESignature(file);
+      if (!isPE) {
+        setError('Demo file is not a valid PE binary');
+        setValidationWarning({
+          type: 'signature',
+          message: 'Demo file does not have valid PE signature'
+        });
+        return;
+      }
+
+      setBinaryFile(file);
+    } catch (err) {
+      setError(`Failed to load demo: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
 
   const handleBinaryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -224,26 +284,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
         error: statusData.error,
         metrics: metrics || prev.metrics
       } : null);
-
-      // Fetch CFG data when available (after Stage 1 completes)
-      if (statusData.available_artifacts?.includes('input.cfg') && !cfgData && !cfgLoading) {
-        setCfgLoading(true);
-        try {
-          const cfgResponse = await fetch(`/api/binary_obfuscate/artifact/${jobId}/input.cfg`);
-          if (cfgResponse.ok) {
-            const cfg = await cfgResponse.json();
-            setCfgData(cfg);
-            setCfgError(null);
-          } else {
-            setCfgError('Failed to load CFG');
-          }
-        } catch (err) {
-          setCfgError('Failed to fetch CFG data');
-          console.warn('Failed to fetch CFG:', err);
-        } finally {
-          setCfgLoading(false);
-        }
-      }
 
       // Stop polling on completion, error, or cancellation
       if (statusData.stage === 'COMPLETED' || statusData.stage === 'ERROR' || statusData.status === 'CANCELLED') {
@@ -459,7 +499,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
           animation: 'slideDown 0.3s ease-out'
         }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            ❌ {error}
           </span>
           <button
             onClick={() => setError(null)}
@@ -608,7 +647,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: 'white',
                       fontWeight: 'bold',
                       fontSize: '1.2em',
                       marginBottom: '12px',
@@ -802,7 +840,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                 }}
               >
                 <h3 style={{ margin: 0, fontSize: '1.1em', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>🔍</span> Binary Control Flow Graph
                   {cfgData && (
                     <span style={{
                       fontSize: '0.75em',
@@ -868,7 +905,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                     onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
                     onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
                   >
-                    📥 Download Binary
                   </a>
                 )}
 
@@ -890,7 +926,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                     onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
                     onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
                   >
-                    ⚙️ Download IR
                   </a>
                 )}
 
@@ -913,7 +948,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                     onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--border-color)'}
                     onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'}
                   >
-                    📊 Download Metrics
                   </a>
                 )}
 
@@ -964,7 +998,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                   fontSize: '1em'
                 }}
               >
-                🔄 Start New Obfuscation
               </button>
             </section>
           )}
@@ -993,7 +1026,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
               border: '2px solid var(--danger)',
               animation: 'fadeIn 0.5s ease-out'
             }}>
-              <h3 style={{ marginTop: 0, color: 'var(--danger)' }}>❌ Obfuscation Failed</h3>
 
               <div style={{
                 marginBottom: '20px',
@@ -1034,7 +1066,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                     fontWeight: 'bold'
                   }}
                 >
-                  🔄 Retry with Same Settings
                 </button>
 
                 {jobState.artifacts.includes('logs.txt') && (
@@ -1063,6 +1094,67 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
         </>
       ) : (
         <>
+          {/* Demo Programs Section */}
+          {demos.length > 0 && (
+            <section style={{
+              marginBottom: '20px',
+              padding: '20px',
+              backgroundColor: 'var(--bg-secondary)',
+              borderRadius: '8px',
+              border: '1px solid var(--border-color)',
+              animation: 'fadeIn 0.5s ease-out'
+            }}>
+              <h3 style={{ margin: '0 0 16px 0' }}>📦 Demo Programs</h3>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>
+                  Select a demo to try:
+                </label>
+                <select
+                  value={selectedDemo}
+                  onChange={(e) => handleDemoSelect(e.target.value)}
+                  disabled={isJobRunning}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    backgroundColor: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
+                    color: 'var(--text-primary)',
+                    cursor: isJobRunning ? 'not-allowed' : 'pointer',
+                    opacity: isJobRunning ? 0.6 : 1,
+                    fontSize: '1em'
+                  }}
+                >
+                  <option value="">Choose a demo binary...</option>
+                  {demos.map(demo => (
+                    <option key={demo.id} value={demo.id}>
+                      {demo.name} - {demo.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedDemo && demos.find(d => d.id === selectedDemo) && (
+                <div style={{
+                  padding: '12px',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  borderRadius: '4px',
+                  fontSize: '0.9em',
+                  color: 'var(--text-secondary)'
+                }}>
+                  <p style={{ margin: '0 0 8px 0' }}>
+                    <strong>{demos.find(d => d.id === selectedDemo)?.name}</strong>
+                  </p>
+                  <p style={{ margin: '0 0 8px 0' }}>
+                    {demos.find(d => d.id === selectedDemo)?.description}
+                  </p>
+                  <p style={{ margin: '0' }}>
+                    Features: {demos.find(d => d.id === selectedDemo)?.features.join(', ')}
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+
           {/* Upload Binary Section */}
           <section style={{
             marginBottom: '30px',
@@ -1072,7 +1164,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
             border: '1px solid var(--border-color)',
             animation: 'fadeIn 0.5s ease-out'
           }}>
-            <h3 style={{ marginTop: 0 }}>📁 Upload Windows PE Binary</h3>
 
             {validationWarning && (
               <div style={{
@@ -1136,7 +1227,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                 style={{
                   padding: '10px 20px',
                   backgroundColor: 'var(--accent)',
-                  color: 'white',
                   border: 'none',
                   borderRadius: '4px',
                   cursor: isJobRunning ? 'not-allowed' : 'pointer',
@@ -1207,7 +1297,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
             border: '1px solid var(--border-color)',
             animation: 'fadeIn 0.5s ease-out'
           }}>
-            <h3 style={{ marginTop: 0 }}>⚙️ Obfuscation Passes</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9em', marginTop: '-10px', marginBottom: '16px' }}>
               Some passes are disabled in binary mode (unsafe for lifter IR)
             </p>
@@ -1241,7 +1330,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
                       style={{ cursor: isDisabled || isJobRunning ? 'not-allowed' : 'pointer' }}
                     />
                     <span style={{ flex: 1 }}>{passName.replace(/_/g, ' ')}</span>
-                    {isDisabled && <span style={{ fontSize: '0.9em' }}>🔒</span>}
                   </label>
                 );
               })}
@@ -1256,7 +1344,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
               width: '100%',
               padding: '16px',
               backgroundColor: binaryFile && !isJobRunning ? 'var(--accent)' : 'var(--text-secondary)',
-              color: 'white',
               border: 'none',
               borderRadius: '8px',
               fontSize: '1.1em',
@@ -1275,7 +1362,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
               e.currentTarget.style.transform = 'scale(1)';
             }}
           >
-            🚀 Start Obfuscation
           </button>
 
           {/* Mode Switch Info */}
@@ -1289,7 +1375,6 @@ export function BinaryObfuscationMode({ onJobStart, onModeChange }: BinaryObfusc
             border: '1px solid var(--border-color)',
             animation: 'fadeIn 0.5s ease-out'
           }}>
-            💡 Want to obfuscate source code instead?{' '}
             <button
               onClick={handleModeSwitch}
               disabled={isJobRunning}

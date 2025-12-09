@@ -118,7 +118,6 @@ const BinarySizeImpact: React.FC<{ metrics: BinaryMetrics }> = ({ metrics }) => 
   return (
     <div style={{ marginBottom: '32px' }}>
       <h3 style={{ color: 'var(--text-primary)', marginBottom: '16px' }}>
-        📦 Binary Size Impact
       </h3>
 
       <div
@@ -197,7 +196,6 @@ const InstructionCountImpact: React.FC<{ metrics: BinaryMetrics }> = ({ metrics 
   return (
     <div style={{ marginBottom: '32px' }}>
       <h3 style={{ color: 'var(--text-primary)', marginBottom: '16px' }}>
-        ⚙️ LLVM Instruction Count Impact
       </h3>
 
       <div
@@ -276,7 +274,6 @@ const ControlFlowComplexityImpact: React.FC<{ metrics: BinaryMetrics }> = ({ met
   return (
     <div style={{ marginBottom: '32px' }}>
       <h3 style={{ color: 'var(--text-primary)', marginBottom: '16px' }}>
-        🔄 Control Flow Complexity Impact
       </h3>
 
       <div
@@ -359,7 +356,6 @@ const SummaryStatistics: React.FC<{ metrics: BinaryMetrics }> = ({ metrics }) =>
   return (
     <div style={{ marginBottom: '32px' }}>
       <h3 style={{ color: 'var(--text-primary)', marginBottom: '16px' }}>
-        📈 Summary Statistics
       </h3>
 
       <div
@@ -442,7 +438,6 @@ const BinaryMetricsDashboard: React.FC<Props> = ({ metrics }) => {
       }}
     >
       <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>📊 Obfuscation Metrics</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
           Detailed analysis of binary transformations across size, instruction count, and control flow complexity
         </p>
