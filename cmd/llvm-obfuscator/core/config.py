@@ -134,6 +134,7 @@ class UPXConfiguration:
     compression_level: str = "best"  # fast, default, best, brute
     use_lzma: bool = True
     preserve_original: bool = False
+    custom_upx_path: Optional[Path] = None  # Custom path to UPX binary (overrides system UPX)
 
 
 @dataclass
@@ -148,7 +149,11 @@ class RemarksConfiguration:
 @dataclass
 class AntiDebugConfiguration:
     enabled: bool = False
-    techniques: List[str] = field(default_factory=lambda: ["ptrace", "proc_status"])  # ptrace, proc_status, parent_check, timing
+    # Linux techniques: ptrace, proc_status, parent_check, timing
+    # Windows techniques: is_debugger_present, remote_debugger, peb_flag, nt_global_flag, 
+    #                     nt_query_info, hardware_breakpoints, timing, output_debug_string
+    # Note: Linux techniques are auto-mapped to Windows equivalents when targeting Windows platform
+    techniques: List[str] = field(default_factory=lambda: ["ptrace", "proc_status"])
 
 @dataclass
 class AdvancedConfiguration:
@@ -244,11 +249,15 @@ class ObfuscationConfig:
         )
 
         upx_data = adv_data.get("upx_packing", {})
+        custom_upx_path = upx_data.get("custom_upx_path")
+        if custom_upx_path:
+            custom_upx_path = Path(custom_upx_path)
         upx_config = UPXConfiguration(
             enabled=upx_data.get("enabled", False),
             compression_level=upx_data.get("compression_level", "best"),
             use_lzma=upx_data.get("use_lzma", True),
             preserve_original=upx_data.get("preserve_original", False),
+            custom_upx_path=custom_upx_path,
         )
         anti_debug_data = adv_data.get("anti_debug", {})
         anti_debug_config = AntiDebugConfiguration(

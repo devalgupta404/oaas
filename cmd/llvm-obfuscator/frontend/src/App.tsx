@@ -4460,7 +4460,11 @@ function App() {
               />
               <span className="layer-label">
                 Anti-Debugging Protection
-                <small>Detect and prevent debugging (ptrace, GDB, strace detection)</small>
+                <small>
+                  {targetPlatform === 'windows' 
+                    ? 'Detect and prevent debugging (IsDebuggerPresent, PEB flags, hardware breakpoints)'
+                    : 'Detect and prevent debugging (ptrace, GDB, strace detection)'}
+                </small>
               </span>
             </label>
 
