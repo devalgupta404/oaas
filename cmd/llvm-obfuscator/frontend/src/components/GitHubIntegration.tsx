@@ -51,7 +51,7 @@ export const GitHubIntegration: React.FC<GitHubIntegrationProps> = ({ onFilesLoa
   const [githubEnabled, setGithubEnabled] = useState(false);
 
   useEffect(() => {
-    // Check if GitHub OAuth is enabled
+    // Check if Github OAuth is enabled
     fetch('/api/capabilities')
       .then(res => res.json())
       .then(data => {

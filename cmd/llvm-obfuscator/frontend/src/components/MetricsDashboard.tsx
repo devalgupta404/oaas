@@ -1,5 +1,5 @@
 /**
- * Advanced Metrics Dashboard Component
+ * Advanced Metrics Dashboard Components
  * Displays comprehensive LLVM obfuscation metrics with interactive visualizations
  */
 

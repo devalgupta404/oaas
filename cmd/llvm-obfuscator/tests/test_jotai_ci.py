@@ -3,7 +3,7 @@
 CI Integration Test for Jotai Benchmarks
 
 This script:
-1. Gets all C source files from Jotai
+1. Gets all C source files from Jotai.
 2. Creates baseline binaries (normal compilation)
 3. Runs obfuscation on source files
 4. Creates obfuscated binaries
