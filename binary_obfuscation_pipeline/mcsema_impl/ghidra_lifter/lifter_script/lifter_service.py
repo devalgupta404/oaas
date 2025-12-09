@@ -315,20 +315,21 @@ def convert_to_mcsema():
                 output_cfg = json_cfg_path + '.cfg'
 
         arch = data.get('arch', 'amd64')
+        os_type = data.get('os', 'windows')
 
         logger.info(f"Converting JSON CFG to McSema protobuf: {json_cfg_path} -> {output_cfg}")
 
         # Import and run the converter
         try:
             from json_to_mcsema import convert_json_to_mcsema
-            stats = convert_json_to_mcsema(json_cfg_path, output_cfg, arch)
+            stats = convert_json_to_mcsema(json_cfg_path, output_cfg, arch, os_type)
 
             return jsonify({
                 'success': True,
                 'cfg_file': output_cfg,
                 'stats': stats,
                 'next_stage': 'READY_FOR_MCSEMA_LIFT',
-                'next_action': f'mcsema-lift-11.0 --cfg {output_cfg} --output program.bc --arch {arch} --os windows'
+                'next_action': f'mcsema-lift-11.0 --cfg {output_cfg} --output program.bc --arch {arch} --os {os_type}'
             }), 200
 
         except ImportError as e:
@@ -373,6 +374,7 @@ def lift_full_pipeline():
 
         output_dir = data.get('output_dir', REPORTS_DIR)
         arch = data.get('arch', 'amd64')
+        os_type = data.get('os', 'windows')
         os.makedirs(output_dir, exist_ok=True)
 
         binary_name = os.path.basename(binary_path)
@@ -395,7 +397,7 @@ def lift_full_pipeline():
 
         try:
             from json_to_mcsema import convert_json_to_mcsema
-            convert_stats = convert_json_to_mcsema(json_cfg_path, mcsema_cfg_path, arch)
+            convert_stats = convert_json_to_mcsema(json_cfg_path, mcsema_cfg_path, arch, os_type)
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -409,7 +411,7 @@ def lift_full_pipeline():
             'ghidra_stats': lift_result['stats'],
             'mcsema_stats': convert_stats,
             'next_stage': 'READY_FOR_MCSEMA_LIFT',
-            'next_action': f'mcsema-lift-11.0 --cfg {mcsema_cfg_path} --output {base_name}.bc --arch {arch} --os windows'
+            'next_action': f'mcsema-lift-11.0 --cfg {mcsema_cfg_path} --output {base_name}.bc --arch {arch} --os {os_type}'
         }), 200
 
     except Exception as e:

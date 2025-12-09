@@ -37,6 +37,13 @@ MCSEMA_LIFT_PATH = '/mcsema/mcsema/bin/mcsema-lift-11.0'
 OUTPUT_DIR = '/app/output'
 CFG_DIR = '/app/cfg'
 
+# Semantics paths for Remill (required by mcsema-lift)
+SEMANTICS_PATHS = [
+    '/mcsema/remill/share/remill/11.0/semantics',
+    '/mcsema/remill/share/remill/semantics',
+]
+SEMANTICS_SEARCH_PATH = ':'.join(SEMANTICS_PATHS)
+
 # Ensure directories exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(CFG_DIR, exist_ok=True)
@@ -130,6 +137,7 @@ class McSemaLifter:
             '--output', output_bc_path,
             '--arch', mcsema_arch,
             '--os', mcsema_os,
+            '--semantics_search_paths', SEMANTICS_SEARCH_PATH,
         ]
 
         logger.info(f"Running: {' '.join(cmd)}")

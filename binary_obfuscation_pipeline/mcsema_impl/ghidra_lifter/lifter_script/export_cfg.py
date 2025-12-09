@@ -116,11 +116,23 @@ try:
         data_b64 = ""
         if block.isInitialized() and block_size > 0 and block_size < 50 * 1024 * 1024:  # Max 50MB
             try:
-                data_bytes = bytearray(block_size)
-                block.getBytes(block_start, data_bytes)
-                data_b64 = base64.b64encode(bytes(data_bytes)).decode('ascii')
+                # Use jarray for Java byte array (required by Ghidra's getBytes API)
+                import jarray
+                from java.lang import Byte
+                java_bytes = jarray.zeros(block_size, 'b')
+                block.getBytes(block_start, java_bytes)
+                # Convert signed Java bytes to unsigned Python bytes
+                # Java bytes are signed (-128 to 127), need to convert to 0-255
+                # Use bytearray for Jython 2.7 compatibility
+                python_bytes = bytearray(block_size)
+                for i in range(block_size):
+                    # Convert signed byte to unsigned (0-255)
+                    python_bytes[i] = java_bytes[i] & 0xFF
+                data_b64 = base64.b64encode(str(python_bytes)).decode('ascii')
             except Exception as e:
                 print("  Warning: Could not read bytes from %s: %s" % (block_name, str(e)))
+                import traceback
+                traceback.print_exc()
                 data_b64 = ""
 
         segment = {
