@@ -1,5 +1,5 @@
 /**
- * Advanced Metrics Dashboard Components
+ * Advanced Metrics Dashboard Component
  * Displays comprehensive LLVM obfuscation metrics with interactive visualizations
  */
 
@@ -62,11 +62,24 @@ interface InstructionMetricsData {
   };
 }
 
+interface ReportMetadata {
+  platform?: string;
+  architecture?: string;
+  binary_format?: string;
+  metric_extraction_method?: string;
+  [key: string]: any;
+}
+
 interface ReportData {
   obfuscation_score?: number;
   overall_protection_index?: number;
   control_flow_metrics?: ControlFlowMetricsData;
   instruction_metrics?: InstructionMetricsData;
+  metadata?: ReportMetadata;
+  input_parameters?: {
+    platform?: string;
+    [key: string]: any;
+  };
 }
 
 interface PhoronixMetrics {
@@ -101,7 +114,10 @@ const INSTRUCTION_COLORS: { [key: string]: string } = {
   other: '#6e40aa',
 };
 
-
+/**
+ * Protection Score Card - Main summary widget
+ * Displays score on 0-100 scale (industry-standard PRCS framework)
+ */
 const ProtectionScoreCard: React.FC<{ score?: number }> = ({ score = 0 }) => {
   // Score is already on 0-100 scale
   const scoreValue = Math.round(score);
@@ -188,7 +204,9 @@ const ProtectionScoreCard: React.FC<{ score?: number }> = ({ score = 0 }) => {
   );
 };
 
-
+/**
+ * Control Flow Comparison Bar Chart
+ */
 const ControlFlowChart: React.FC<{ metrics: ControlFlowMetricsData }> = ({
   metrics,
 }) => {
@@ -269,7 +287,9 @@ const ControlFlowChart: React.FC<{ metrics: ControlFlowMetricsData }> = ({
   );
 };
 
-
+/**
+ * Instruction Distribution Pie Chart
+ */
 const InstructionChart: React.FC<{ metrics: InstructionMetricsData }> = ({
   metrics,
 }) => {
@@ -410,7 +430,9 @@ const InstructionChart: React.FC<{ metrics: InstructionMetricsData }> = ({
   );
 };
 
-
+/**
+ * Metric Card - Small informational card
+ */
 interface MetricCardProps {
   label: string;
   value: string | number;
@@ -457,7 +479,12 @@ const MetricCard: React.FC<MetricCardProps> = ({
   );
 };
 
-
+/**
+ * Main MetricsDashboard Component
+ */
+/**
+ * Phoronix Benchmarking Metrics Card
+ */
 const PhoronixMetricsCard: React.FC<{ metrics?: PhoronixMetrics }> = ({ metrics }) => {
   if (!metrics) return null;
 
@@ -591,6 +618,56 @@ export const MetricsDashboard: React.FC<Props> = ({ report }) => {
         animation: 'fadeIn 0.8s ease-out',
       }}
     >
+      {/* ✅ NEW: Platform Metadata Indicator (for Windows score fix transparency) */}
+      {report.metadata && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '20px',
+            padding: '12px 16px',
+            backgroundColor: '#f6f8fa',
+            borderRadius: '8px',
+            border: '1px solid #d0d7de',
+            fontSize: '14px',
+            fontWeight: '500',
+          }}
+        >
+          <span>📊</span>
+          <span>
+            <strong>Platform:</strong>{' '}
+            {(report.metadata.platform || 'unknown').toUpperCase()}
+          </span>
+          {report.metadata.binary_format && (
+            <span
+              style={{
+                display: 'inline-block',
+                backgroundColor: '#1f6feb',
+                color: 'white',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                marginLeft: '4px',
+              }}
+            >
+              {report.metadata.binary_format}
+            </span>
+          )}
+          {report.metadata.metric_extraction_method && (
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: '12px',
+                color: '#666',
+              }}
+            >
+              Metrics: {report.metadata.metric_extraction_method}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Protection Score */}
       <ProtectionScoreCard score={report.overall_protection_index || report.obfuscation_score} />
 

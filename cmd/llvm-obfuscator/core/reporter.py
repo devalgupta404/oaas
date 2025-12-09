@@ -123,7 +123,18 @@ class ObfuscationReport:
                 "entropy_increase": safe_float(job_data.get("entropy_increase"), 0.0),
                 "estimated_re_effort": job_data.get("estimated_re_effort", "4-6 weeks"),
                 # ✅ NEW: Test suite results (optional, if tests were run)
-                "metadata": job_data.get("metadata"),  # Optional test suite metadata
+                "metadata": {
+                    **(job_data.get("metadata") or {}),  # Merge existing metadata
+                    # ✅ NEW: Platform and binary format metadata for Windows score fix
+                    "platform": job_data.get("platform"),
+                    "architecture": job_data.get("architecture"),
+                    "binary_format": job_data.get("binary_format"),
+                    "metric_extraction_method": (
+                        "pefile (Windows PE)" if job_data.get("platform") == "windows" and job_data.get("binary_format") == "PE"
+                        else "readelf (Linux ELF)" if job_data.get("platform") == "linux"
+                        else "unknown"
+                    ),
+                },
                 "test_results": job_data.get("test_results"),  # Optional test suite results
                 "test_metrics": job_data.get("test_metrics"),  # Optional test metrics
                 "metrics_reliability": job_data.get("metrics_reliability"),  # Optional reliability status

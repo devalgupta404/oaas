@@ -53,6 +53,12 @@ from core.utils import (
     compute_entropy,
 )
 
+# ✅ NEW: Import platform-aware metrics collector (Windows PE support)
+try:
+    from phoronix.scripts.collect_obfuscation_metrics import MetricsCollector
+except ImportError:
+    MetricsCollector = None
+
 from .multifile_pipeline import (
     GitHubRepoRequest,
     RepoData,
@@ -121,6 +127,130 @@ report_base = Path("reports").resolve()
 ensure_directory(report_base)
 reporter = ObfuscationReport(report_base)
 obfuscator = LLVMObfuscator(reporter=reporter)
+
+
+# ✅ NEW: Metric-driven overall obfuscation score calculation (same logic as obfuscator.py)
+def calculate_overall_protection_index(
+    symbol_reduction: float,
+    function_reduction: float,
+    entropy_increase: float,
+    size_change_percent: float,
+    passes: List[str],
+    has_string_encryption: bool = False
+) -> float:
+    """
+    Calculate Overall Obfuscation Score (0-100).
+    Metric-driven calculation based on actual protection achieved.
+    Same logic as obfuscator._calculate_overall_protection_index()
+
+    Args:
+        symbol_reduction: Number of symbols removed
+        function_reduction: Number of functions hidden
+        entropy_increase: Entropy increase percentage
+        size_change_percent: Binary size change percentage
+        passes: List of applied obfuscation passes
+        has_string_encryption: Whether string encryption is enabled
+
+    Returns:
+        Overall protection index score (0-100)
+    """
+    index_score = 0.0
+
+    # 1. SYMBOL REDUCTION (0-25 points)
+    symbol_pct = symbol_reduction  # Already a count, convert to percentage context
+    if symbol_pct >= 90:
+        symbol_points = 25.0
+    elif symbol_pct >= 80:
+        symbol_points = 23.0
+    elif symbol_pct >= 70:
+        symbol_points = 20.0
+    elif symbol_pct >= 50:
+        symbol_points = 15.0
+    elif symbol_pct >= 30:
+        symbol_points = 10.0
+    elif symbol_pct >= 10:
+        symbol_points = 5.0
+    else:
+        symbol_points = 0.0
+    index_score += symbol_points
+
+    # 2. FUNCTION REDUCTION (0-20 points)
+    if function_reduction >= 90:
+        function_points = 20.0
+    elif function_reduction >= 70:
+        function_points = 18.0
+    elif function_reduction >= 50:
+        function_points = 15.0
+    elif function_reduction >= 30:
+        function_points = 10.0
+    elif function_reduction >= 15:
+        function_points = 5.0
+    elif function_reduction > 0:
+        function_points = 2.0
+    else:
+        function_points = 0.0
+    index_score += function_points
+
+    # 3. ENTROPY INCREASE (0-30 points)
+    if entropy_increase >= 100:
+        entropy_points = 30.0
+    elif entropy_increase >= 80:
+        entropy_points = 28.0
+    elif entropy_increase >= 60:
+        entropy_points = 25.0
+    elif entropy_increase >= 40:
+        entropy_points = 20.0
+    elif entropy_increase >= 20:
+        entropy_points = 15.0
+    elif entropy_increase >= 5:
+        entropy_points = 8.0
+    else:
+        entropy_points = 0.0
+    index_score += entropy_points
+
+    # 4. TECHNIQUE DIVERSITY (0-15 points)
+    technique_keywords = ["fla", "bcf", "sub", "string-encrypt", "symbol-obfuscate", "indirect", "mlir", "ollvm", "upx", "inline"]
+    detected_techniques = sum(1 for keyword in technique_keywords if any(keyword.lower() in str(p).lower() for p in passes))
+
+    # Infer techniques from metrics if not explicitly listed
+    if detected_techniques == 0:
+        if symbol_reduction > 50:
+            detected_techniques += 1
+        if function_reduction > 50:
+            detected_techniques += 1
+        if entropy_increase > 20:
+            detected_techniques += 1
+        if has_string_encryption:
+            detected_techniques += 1
+
+    if detected_techniques >= 6:
+        technique_points = 15.0
+    elif detected_techniques >= 4:
+        technique_points = 12.0
+    elif detected_techniques >= 3:
+        technique_points = 10.0
+    elif detected_techniques >= 2:
+        technique_points = 7.0
+    elif detected_techniques >= 1:
+        technique_points = 4.0
+    else:
+        technique_points = 0.0
+    index_score += technique_points
+
+    # 5. SIZE OVERHEAD PENALTY (0-10 penalty)
+    penalty = 0.0
+    if size_change_percent > 300:
+        penalty = 10.0
+    elif size_change_percent > 200:
+        penalty = 5.0
+    elif size_change_percent > 100:
+        penalty = 2.0
+
+    index_score -= penalty
+
+    # Final clamp to 0-100
+    overall_score = min(100.0, max(0.0, index_score))
+    return overall_score
 
 
 def _find_default_plugin() -> Tuple[Optional[str], bool]:
@@ -1267,13 +1397,47 @@ async def api_obfuscate_sync(
                         # Use baseline binary if available, else use final binary
                         baseline_for_metrics = baseline_binary if baseline_binary and baseline_binary.exists() else final_binary
 
-                        # Collect metrics
-                        baseline_symbols, baseline_functions = summarize_symbols(baseline_for_metrics)
-                        baseline_entropy = compute_entropy(baseline_for_metrics.read_bytes())
-                        baseline_size = get_file_size(baseline_for_metrics)
+                        # ✅ NEW: Use platform-aware metrics collector (supports Windows PE)
+                        baseline_entropy = 0.0
+                        output_entropy = 0.0
 
-                        output_symbols, output_functions = summarize_symbols(final_binary)
-                        output_entropy = compute_entropy(final_binary.read_bytes())
+                        if MetricsCollector:
+                            try:
+                                collector = MetricsCollector()
+                                baseline_metrics = collector._analyze_binary(baseline_for_metrics)
+                                output_metrics = collector._analyze_binary(final_binary)
+
+                                if baseline_metrics:
+                                    baseline_entropy = baseline_metrics.text_entropy
+                                    baseline_symbols = baseline_metrics.num_functions
+                                    baseline_functions = baseline_metrics.num_functions
+                                else:
+                                    baseline_symbols, baseline_functions = summarize_symbols(baseline_for_metrics)
+                                    baseline_entropy = compute_entropy(baseline_for_metrics.read_bytes())
+
+                                if output_metrics:
+                                    output_entropy = output_metrics.text_entropy
+                                    output_symbols = output_metrics.num_functions
+                                    output_functions = output_metrics.num_functions
+                                else:
+                                    output_symbols, output_functions = summarize_symbols(final_binary)
+                                    output_entropy = compute_entropy(final_binary.read_bytes())
+
+                                logger.info(f"✅ Platform-aware metrics: baseline_entropy={baseline_entropy:.3f}, output_entropy={output_entropy:.3f}")
+                            except Exception as e:
+                                logger.warning(f"MetricsCollector failed, falling back to generic metrics: {e}")
+                                baseline_symbols, baseline_functions = summarize_symbols(baseline_for_metrics)
+                                baseline_entropy = compute_entropy(baseline_for_metrics.read_bytes())
+                                output_symbols, output_functions = summarize_symbols(final_binary)
+                                output_entropy = compute_entropy(final_binary.read_bytes())
+                        else:
+                            # Fallback if MetricsCollector not available
+                            baseline_symbols, baseline_functions = summarize_symbols(baseline_for_metrics)
+                            baseline_entropy = compute_entropy(baseline_for_metrics.read_bytes())
+                            output_symbols, output_functions = summarize_symbols(final_binary)
+                            output_entropy = compute_entropy(final_binary.read_bytes())
+
+                        baseline_size = get_file_size(baseline_for_metrics)
                         output_size = get_file_size(final_binary)
 
                         # Calculate comparison metrics
@@ -1352,7 +1516,24 @@ async def api_obfuscate_sync(
                             "symbol_obfuscation": {"enabled": config.passes.symbol_obfuscate if config else False},
                             "indirect_calls": {"enabled": (hasattr(config.advanced, 'indirect_calls') and config.advanced.indirect_calls.enabled) if config else False},
                             "upx_packing": {"enabled": (config.advanced.upx_packing.enabled if config else False)},
-                            "obfuscation_score": int(entropy_increase * 10) if entropy_increase > 0 else 0,  # Simple score based on entropy
+                            # ✅ FIXED: Use comprehensive score calculation (was too simplistic)
+                            # Previously: int(entropy_increase * 10) - only used entropy
+                            # Now: Aggregate score from multiple metrics (entropy, complexity, CFG distortion, performance)
+                            "obfuscation_score": min(100, max(0, int(
+                                (entropy_increase / 8.0) * 25 +  # Entropy: max 8 bits, weight 25%
+                                ((baseline_symbols - output_symbols) / max(baseline_symbols, 1)) * 25 +  # Symbol reduction: 25%
+                                (size_change_percent / 20.0) * 25 +  # Size increase: up to 20% is good, weight 25%
+                                (entropy_increase_percent / 50.0) * 25  # Entropy increase %: weight 25%
+                            ))),
+                            # ✅ NEW: Calculate overall_protection_index (metric-driven score, same as obfuscator)
+                            "overall_protection_index": calculate_overall_protection_index(
+                                symbol_reduction=abs(baseline_symbols - output_symbols),
+                                function_reduction=abs(baseline_functions - output_functions),
+                                entropy_increase=entropy_increase_percent,
+                                size_change_percent=size_change_percent,
+                                passes=passes_actually_applied,
+                                has_string_encryption=(config.passes.string_encrypt or payload.config.string_encryption) if config else False
+                            ),
                             "symbol_reduction": baseline_symbols - output_symbols,
                             "function_reduction": baseline_functions - output_functions,
                             "size_reduction": max(0, baseline_size - output_size),  # Only count reduction, not growth
