@@ -1817,7 +1817,6 @@ function App() {
   const [dogboltLoading, setDogboltLoading] = useState(false);
   const [dogboltError, setDogboltError] = useState<string | null>(null);
   const [selectedDecompiler, setSelectedDecompiler] = useState<string | null>(null);
-  const [dogboltCountdown, setDogboltCountdown] = useState<number | null>(null); // Total seconds remaining
 
   // Original binary decompilation results state
   const [originalDogboltResults, setOriginalDogboltResults] = useState<any>(null);
@@ -1849,7 +1848,6 @@ function App() {
 
   // Layer 2: String Encryption sub-options
   const [fakeLoops, setFakeLoops] = useState<number | string>(0);
-  const [antiDebug, setAntiDebug] = useState(false); // Anti-debugging protection
   const [stringMinLength, setStringMinLength] = useState<number | string>(4);
   const [stringEncryptFormatStrings, setStringEncryptFormatStrings] = useState(true);
 
@@ -1866,10 +1864,6 @@ function App() {
   const [cycles, setCycles] = useState<number | string>(1);
   const [ollvmSplitNum, setOllvmSplitNum] = useState<number | string>(3);
   const [ollvmBogusLoop, setOllvmBogusLoop] = useState<number | string>(1);
-
-  // Layer 3.5: VM Virtualization (experimental)
-  const [vmEnabled, setVmEnabled] = useState(false);
-  const [vmTimeout, setVmTimeout] = useState<number | string>(60);
 
   // Layer 4: Compiler Flags sub-options
   const [flagSymbolHiding, setFlagSymbolHiding] = useState(false);
@@ -1907,35 +1901,6 @@ function App() {
       .then(res => setServerStatus(res.ok ? 'online' : 'offline'))
       .catch(() => setServerStatus('offline'));
   }, []);
-
-  // Dogbolt countdown timer effect
-  useEffect(() => {
-    // Stop timer immediately when results are ready (no pending decompilers)
-    if (dogboltResults && dogboltResults.pending === 0) {
-      setDogboltCountdown(null);
-      return;
-    }
-    
-    if (dogboltLoading && (!dogboltResults || (dogboltResults && dogboltResults.pending > 0)) && !dogboltError) {
-      // Start countdown at 5 minutes (300 seconds) immediately (only if not already set)
-      setDogboltCountdown(prev => prev === null ? 300 : prev);
-      
-      // Decrement countdown every second
-      const interval = setInterval(() => {
-        setDogboltCountdown(prev => {
-          if (prev === null || prev <= 0) {
-            return 0; // Keep at 0 when time is up
-          }
-          return prev - 1;
-        });
-      }, 1000); // 1 second
-      
-      return () => clearInterval(interval);
-    } else {
-      // Reset countdown when loading stops or results are received
-      setDogboltCountdown(null);
-    }
-  }, [dogboltLoading, dogboltResults, dogboltError]);
 
   // Restore session on mount
   useEffect(() => {
@@ -2490,13 +2455,7 @@ function App() {
   // Track layer changes to auto-switch to 'custom' preset
   const handleLayerChange = (layer: number, value: boolean) => {
     if (layer === 1) setLayer1(value);
-    if (layer === 2) {
-      // Layer 2 (MLIR) is not supported for macOS due to ld64.lld linker bug
-      if (value && (targetPlatform === 'macos' || targetPlatform === 'all')) {
-        return; // Don't enable Layer 2 for macOS
-      }
-      setLayer2(value);
-    }
+    if (layer === 2) setLayer2(value);
     if (layer === 2.5) setLayer2_5(value);
     if (layer === 3) {
       setLayer3(value);
@@ -2738,8 +2697,8 @@ function App() {
         // - macOS: uses COMDAT sections which Mach-O doesn't support
         // - Windows ARM64: corrupts SEH (Structured Exception Handling) metadata
         if (flagSpeculativeLoadHardening && !isMacOSTarget && !isWindowsArm64) flags.push('-mspeculative-load-hardening');
-        // LTO (Link-Time Optimization) - DISABLED: requires LLVM 22 linker (lld)
-        // if (flagLTO) flags.push('-flto');
+        // LTO (Link-Time Optimization) - enables whole-program optimization
+        if (flagLTO) flags.push('-flto');
       }
 
       // NOTE: Layer 3 OLLVM passes are handled via config.passes object below
@@ -2797,19 +2756,10 @@ function App() {
             use_lzma: layer5 ? upxLzma : true,
             preserve_original: layer5 ? upxPreserveOriginal : false
           },
-          anti_debug: {
-            enabled: antiDebug,  // From UI toggle
-            techniques: ['ptrace', 'proc_status']  // Default techniques
-          },
           remarks: {
             enabled: true,  // Always enable remarks by default
             format: 'yaml',
             pass_filter: '.*'  // Capture all optimization passes
-          },
-          vm: {
-            enabled: vmEnabled,
-            timeout: vmEnabled ? (typeof vmTimeout === 'number' ? vmTimeout : parseInt(String(vmTimeout)) || 60) : 60,
-            fallback_on_error: true
           }
         },
         report_formats: ['json', 'markdown', 'pdf'],
@@ -3001,38 +2951,10 @@ function App() {
               const finishedDecompilers = new Set<string>();
               const bestVersions: Record<string, any> = {};
               const startTime = Date.now();
-              const MAX_TIMEOUT_SECONDS = 300; // 5 minutes maximum (reduced from 10)
-              let pollTimeoutId: NodeJS.Timeout | null = null;
               
               // Polling function
               const pollResults = async (): Promise<void> => {
                 try {
-                  const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
-                  
-                  // Check for timeout
-                  if (elapsedSecs >= MAX_TIMEOUT_SECONDS) {
-                    console.warn('[DOGBOLT] Polling timeout reached, stopping');
-                    const timeoutData = {
-                      binary_id: binaryId,
-                      decompilers: results,
-                      total_decompilers: totalDecompilers,
-                      completed: results.filter(r => r.has_code).length,
-                      failed: results.filter(r => r.error).length + (totalDecompilers - finishedDecompilers.size),
-                      pending: 0,
-                      elapsed_seconds: elapsedSecs,
-                      error: `Decompilation timeout after ${MAX_TIMEOUT_SECONDS} seconds. Some decompilers may still be processing.`
-                    };
-                    
-                    if (isOriginal) {
-                      setOriginalDogboltResults(timeoutData);
-                      setOriginalDogboltLoading(false);
-                    } else {
-                      setDogboltResults(timeoutData);
-                      setDogboltLoading(false);
-                    }
-                    return;
-                  }
-                  
                   const allResults = await fetchArray(resultUrl);
                   
                   // Find best version for each decompiler
@@ -3070,46 +2992,19 @@ function App() {
                         const codeData = await codeResponse.json();
                         const code = codeData.code || '';
                         
-                        // Check if code is empty or only whitespace
-                        const trimmedCode = code.trim();
-                        if (!trimmedCode || trimmedCode.length === 0) {
-                          // Mark as failed with empty code error
-                          results.push({
-                            decompiler_name: decompilerName,
-                            decompiler_version: decompilerVersion,
-                            decompiler_key: decompilerKey,
-                            code: '',
-                            has_code: false,
-                            error: 'Empty decompile result',
-                            language: decompilerName === 'Snowman' ? 'cpp' : 'c',
-                            analysis_time: resultData.analysis_time,
-                            created: resultData.created,
-                          });
-                        } else {
-                          results.push({
-                            decompiler_name: decompilerName,
-                            decompiler_version: decompilerVersion,
-                            decompiler_key: decompilerKey,
-                            code: code,
-                            has_code: true,
-                            language: decompilerName === 'Snowman' ? 'cpp' : 'c',
-                            analysis_time: resultData.analysis_time,
-                            created: resultData.created,
-                          });
-                        }
-                        finishedDecompilers.add(decompilerName);
-                      } catch (downloadErr) {
-                        console.error(`[DOGBOLT] Failed to download from ${decompilerName}:`, downloadErr);
-                        // Mark as failed
                         results.push({
                           decompiler_name: decompilerName,
                           decompiler_version: decompilerVersion,
                           decompiler_key: decompilerKey,
-                          error: downloadErr instanceof Error ? downloadErr.message : 'Download failed',
-                          has_code: false,
-                          language: 'c',
+                          code: code,
+                          has_code: true,
+                          language: decompilerName === 'Snowman' ? 'cpp' : 'c',
+                          analysis_time: resultData.analysis_time,
+                          created: resultData.created,
                         });
                         finishedDecompilers.add(decompilerName);
+                      } catch (downloadErr) {
+                        console.error(`[DOGBOLT] Failed to download from ${decompilerName}:`, downloadErr);
                       }
                     } else if (resultData.error) {
                       results.push({
@@ -3124,6 +3019,7 @@ function App() {
                     }
                   }
                   
+                  const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
                   const pending = totalDecompilers - finishedDecompilers.size;
                   
                   if (pending > 0) {
@@ -3132,7 +3028,7 @@ function App() {
                       binary_id: binaryId,
                       decompilers: results,
                       total_decompilers: totalDecompilers,
-                      completed: results.filter(r => r.has_code).length,
+                      completed: finishedDecompilers.size,
                       failed: results.filter(r => r.error).length,
                       pending: pending,
                       elapsed_seconds: elapsedSecs,
@@ -3144,9 +3040,7 @@ function App() {
                       setDogboltResults(updateData);
                     }
                     
-                    // Poll more frequently at first, then slow down
-                    const pollDelay = elapsedSecs < 60 ? 3000 : 5000; // 3s for first minute, then 5s
-                    pollTimeoutId = setTimeout(pollResults, pollDelay);
+                    setTimeout(pollResults, 5000);
                   } else {
                     // All done
                     const successful = results.filter(r => r.has_code).length;
@@ -3165,25 +3059,6 @@ function App() {
                     if (isOriginal) {
                       setOriginalDogboltResults(finalData);
                       setOriginalDogboltLoading(false);
-                      
-                      // Try to match the currently selected decompiler from obfuscated binary
-                      // by name (since versions might differ), or select first available
-                      if (results.length > 0 && selectedDecompiler) {
-                        // Extract decompiler name from selected decompiler key (format: "Name-version")
-                        const selectedName = selectedDecompiler.split('-').slice(0, -1).join('-');
-                        
-                        // Try to find matching decompiler by name
-                        const matchingDecompiler = results.find((d: any) => 
-                          d.has_code && d.decompiler_name === selectedName
-                        );
-                        
-                        if (matchingDecompiler) {
-                          // Found matching decompiler, but don't change selectedDecompiler
-                          // since it's shared between both views - the UI will handle matching
-                        } else {
-                          // No match found, but that's okay - UI will handle it
-                        }
-                      }
                     } else {
                       setDogboltResults(finalData);
                       
@@ -3205,33 +3080,7 @@ function App() {
                   }
                 } catch (pollErr) {
                   console.error('[DOGBOLT] Polling error:', pollErr);
-                  const elapsedSecs = Math.floor((Date.now() - startTime) / 1000);
-                  
-                  // Only retry if we haven't timed out
-                  if (elapsedSecs < MAX_TIMEOUT_SECONDS) {
-                    const pollDelay = elapsedSecs < 60 ? 3000 : 5000; // 3s for first minute, then 5s
-                    pollTimeoutId = setTimeout(pollResults, pollDelay);
-                  } else {
-                    // Timeout reached, stop polling
-                    const timeoutData = {
-                      binary_id: binaryId,
-                      decompilers: results,
-                      total_decompilers: totalDecompilers,
-                      completed: results.filter(r => r.has_code).length,
-                      failed: results.filter(r => r.error).length + (totalDecompilers - finishedDecompilers.size),
-                      pending: 0,
-                      elapsed_seconds: elapsedSecs,
-                      error: `Decompilation timeout after ${MAX_TIMEOUT_SECONDS} seconds. Error: ${pollErr instanceof Error ? pollErr.message : String(pollErr)}`
-                    };
-                    
-                    if (isOriginal) {
-                      setOriginalDogboltResults(timeoutData);
-                      setOriginalDogboltLoading(false);
-                    } else {
-                      setDogboltResults(timeoutData);
-                      setDogboltLoading(false);
-                    }
-                  }
+                  setTimeout(pollResults, 5000);
                 }
               };
               
@@ -4261,68 +4110,6 @@ function App() {
                 flagO3 && flagStripSymbols && flagNoBuiltin && flagLTO
                 ? 'Deselect All' : 'Select All'}
             </button>
-            <button
-              className="select-all-btn"
-              onClick={() => {
-                // Helper function to get random integer in range [min, max]
-                const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-
-                // Helper function to pick random item from array
-                const randomChoice = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
-
-                // Helper function for random boolean
-                const randomBool = () => Math.random() > 0.5;
-
-                // Enable all layers
-                setLayer1(true);
-                setLayer2(true);
-                setLayer2_5(true);
-                setLayer3(true);
-                setLayer4(true);
-                setLayer5(true);
-
-                // Layer 1: Symbol Obfuscation - randomize values
-                setSymbolAlgorithm(randomChoice(['sha256', 'blake2b', 'siphash']));
-                setSymbolHashLength(randomInt(8, 32));
-                setSymbolPrefix(randomChoice(['none', 'typed', 'underscore']));
-
-                // Layer 2: String Encryption - randomize numeric values only
-                setStringMinLength(randomInt(1, 20));
-                setStringEncryptFormatStrings(true);
-                setFakeLoops(randomInt(0, 50));
-
-                // Layer 2.5: Indirect Calls - just enable (no randomization)
-                setIndirectStdlib(true);
-                setIndirectCustom(true);
-
-                // Layer 3: OLLVM Passes - enable all and randomize numeric values only
-                setPassFlattening(true);
-                setPassSubstitution(true);
-                setPassBogusControlFlow(true);
-                setPassSplitBasicBlocks(true);
-                setPassLinearMBA(true);
-                setOllvmSplitNum(randomInt(1, 10));
-                setOllvmBogusLoop(randomInt(1, 5));
-                setCycles(randomInt(1, 5));
-
-                // Layer 4: Compiler Flags - enable all (no randomization)
-                setFlagSymbolHiding(true);
-                setFlagOmitFramePointer(true);
-                setFlagSpeculativeLoadHardening(true);
-                setFlagO3(true);
-                setFlagStripSymbols(true);
-                setFlagNoBuiltin(true);
-                setFlagLTO(true);
-
-                // Layer 5: UPX Packing - enable with defaults (no randomization)
-                setUpxCompression('best');
-                setUpxLzma(true);
-                setUpxPreserveOriginal(false);
-              }}
-              title="Randomize all settings - enables all layers and randomizes Layer 1, 2, 3 values"
-            >
-              Randomize
-            </button>
           </div>
           <div className="layers-grid">
             {/* Layer 1: Symbol Obfuscation */}
@@ -4355,29 +4142,7 @@ function App() {
                     min="8"
                     max="32"
                     value={symbolHashLength}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      // Allow empty or partial input while typing
-                      if (val === '' || val === '-') {
-                        setSymbolHashLength('' as any);
-                      } else {
-                        const num = parseInt(val);
-                        if (!isNaN(num)) {
-                          setSymbolHashLength(num);
-                        }
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const val = parseInt(e.target.value);
-                      // Validate and clamp on blur, default to 12 if empty
-                      if (isNaN(val) || e.target.value === '') {
-                        setSymbolHashLength(12);
-                      } else if (val < 8) {
-                        setSymbolHashLength(8);
-                      } else if (val > 32) {
-                        setSymbolHashLength(32);
-                      }
-                    }}
+                    onChange={(e) => setSymbolHashLength(parseInt(e.target.value) || 12)}
                   />
                 </label>
                 <label>
@@ -4392,21 +4157,15 @@ function App() {
             )}
 
             {/* Layer 2: String Encryption */}
-            <label className={`layer-checkbox ${(targetPlatform === 'macos' || targetPlatform === 'all') ? 'disabled' : ''}`}>
+            <label className="layer-checkbox">
               <input
                 type="checkbox"
                 checked={layer2}
                 onChange={(e) => handleLayerChange(2, e.target.checked)}
-                disabled={targetPlatform === 'macos' || targetPlatform === 'all'}
               />
               <span className="layer-label">
                 [LAYER 2] String Encryption (PRE-COMPILE, 2nd)
                 <small>XOR encryption of string literals + runtime decryption</small>
-                {(targetPlatform === 'macos' || targetPlatform === 'all') && (
-                  <small className="warning-text" style={{ color: '#ff6b6b', display: 'block', marginTop: '4px' }}>
-                    Not available for macOS (ld64.lld linker incompatibility with MLIR-generated sections)
-                  </small>
-                )}
               </span>
             </label>
 
@@ -4450,19 +4209,6 @@ function App() {
                 </label>
               </div>
             )}
-
-            {/* Anti-Debugging Protection */}
-            <label className="layer-checkbox">
-              <input
-                type="checkbox"
-                checked={antiDebug}
-                onChange={(e) => setAntiDebug(e.target.checked)}
-              />
-              <span className="layer-label">
-                Anti-Debugging Protection
-                <small>Detect and prevent debugging (ptrace, GDB, strace detection)</small>
-              </span>
-            </label>
 
             {/* Layer 2.5: Indirect Call Obfuscation */}
             <label className="layer-checkbox">
@@ -4621,51 +4367,6 @@ function App() {
               </div>
             )}
 
-            {/* Layer 3.5: VM Virtualization (Experimental) */}
-            <label className="layer-checkbox">
-              <input
-                type="checkbox"
-                checked={vmEnabled}
-                onChange={(e) => setVmEnabled(e.target.checked)}
-                data-testid="vm-toggle"
-              />
-              <span className="layer-label">
-                [LAYER 3.5] VM Virtualization (EXPERIMENTAL)
-                <small>Convert functions to VM bytecode - strongest obfuscation</small>
-              </span>
-            </label>
-
-            {vmEnabled && (
-              <div className="layer-config">
-                <div className="layer-info" style={{ marginBottom: '10px', padding: '8px', background: 'rgba(255, 193, 7, 0.1)', borderRadius: '4px', border: '1px solid rgba(255, 193, 7, 0.3)' }}>
-                  <strong style={{ color: '#ffc107' }}>Experimental Feature</strong>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85em', color: '#ccc' }}>
-                    VM virtualization transforms simple arithmetic functions into VM bytecode.
-                    Falls back gracefully if functions cannot be virtualized.
-                  </p>
-                </div>
-                <label>
-                  Timeout (seconds):
-                  <input
-                    type="number"
-                    min="10"
-                    max="300"
-                    value={vmTimeout}
-                    onChange={(e) => setVmTimeout(e.target.value === '' ? '' : parseInt(e.target.value) || 60)}
-                    onBlur={(e) => {
-                      const val = parseInt(e.target.value) || 60;
-                      setVmTimeout(Math.min(300, Math.max(10, val)));
-                    }}
-                    title="Maximum time for VM virtualization (10-300 seconds)"
-                    data-testid="vm-timeout"
-                  />
-                  <small style={{ display: 'block', color: '#888', marginTop: '4px' }}>
-                    If timeout is reached, original code is preserved (graceful fallback)
-                  </small>
-                </label>
-              </div>
-            )}
-
             {/* Layer 4: Compiler Flags */}
             <label className="layer-checkbox">
               <input
@@ -4750,15 +4451,14 @@ function App() {
                   />
                   Disable Built-in Functions (-fno-builtin)
                 </label>
-                {/* LTO temporarily disabled - requires LLVM 22 linker */}
-                {/* <label className="sub-option">
+                <label className="sub-option">
                   <input
                     type="checkbox"
                     checked={flagLTO}
                     onChange={(e) => setFlagLTO(e.target.checked)}
                   />
                   Link-Time Optimization (-flto)
-                </label> */}
+                </label>
               </div>
             )}
 
@@ -4842,10 +4542,6 @@ function App() {
                   const validArchs = PLATFORM_ARCHITECTURES[newPlatform];
                   if (validArchs.length > 0 && !validArchs.find(a => a.value === targetArchitecture)) {
                     setTargetArchitecture(validArchs[0].value);
-                  }
-                  // Disable Layer 2 (MLIR String Encryption) for macOS - ld64.lld crashes with MLIR-generated sections
-                  if (newPlatform === 'macos' || newPlatform === 'all') {
-                    setLayer2(false);
                   }
                 }}
               >
@@ -5557,48 +5253,33 @@ function App() {
           <section className="section report-section">
             <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               [6] DOGBOLT DECOMPILATION RESULTS
+              {dogboltLoading && (
+                <div style={{
+                  width: '16px',
+                  height: '16px',
+                  border: '2px solid var(--border-color)',
+                  borderTop: '2px solid var(--accent)',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  flexShrink: 0
+                }} />
+              )}
             </h2>
             
-            {dogboltLoading && (!dogboltResults || !dogboltResults.decompilers?.some((d: any) => d.has_code)) && !dogboltError && (
+            {dogboltLoading && !dogboltResults && !dogboltError && (
               <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                <div style={{ fontSize: '2em', marginBottom: '10px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                  <div style={{
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid var(--border-color)',
-                    borderTop: '2px solid var(--accent)',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite',
-                    flexShrink: 0
-                  }} />
-                </div>
+                <div style={{ fontSize: '2em', marginBottom: '10px' }}>⏳</div>
                 <p style={{ fontSize: '1.1em', fontWeight: 'bold', marginBottom: '10px' }}>
-                  Decompiling obfuscated binary for analysis...
+                  Decompiling obfuscated binary with dogbolt.org...
                 </p>
-                <p style={{ fontSize: '1em', fontWeight: 'bold', marginBottom: '10px', color: 'var(--accent)' }}>
-                  {dogboltCountdown !== null && dogboltCountdown > 0 ? (() => {
-                    const minutes = Math.floor(dogboltCountdown / 60);
-                    const seconds = dogboltCountdown % 60;
-                    if (minutes > 1) {
-                      return `Loading results in ${minutes} minutes ${seconds} seconds`;
-                    } else if (minutes === 1) {
-                      return 'About 1 minute remaining';
-                    } else {
-                      return `Loading results in ${seconds} seconds`;
-                    }
-                  })() : 'Loading results in 5 minutes'}
+                <p style={{ fontSize: '0.9em', marginTop: '10px' }}>
+                  This may take 1-2 minutes as we wait for all decompilers to complete.
                 </p>
-                {dogboltResults && dogboltResults.pending > 0 && (
-                  <p style={{ fontSize: '0.85em', marginTop: '10px', color: 'var(--text-secondary)' }}>
-                    {dogboltResults.completed} of {dogboltResults.total_decompilers} decompilers completed
-                    {dogboltResults.elapsed_seconds > 0 && ` • ${Math.floor(dogboltResults.elapsed_seconds / 60)}m ${dogboltResults.elapsed_seconds % 60}s elapsed`}
-                  </p>
-                )}
-                {dogboltResults && dogboltResults.elapsed_seconds > 180 && (
-                  <p style={{ fontSize: '0.85em', marginTop: '10px', color: '#ffc107' }}>
-                    ⚠ Taking longer than expected. This may indicate network issues or decompiler delays.
-                  </p>
-                )}
+                <div style={{ marginTop: '20px', padding: '15px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '0.9em' }}>
+                  <p style={{ margin: '5px 0' }}>✓ Uploading binary to dogbolt.org</p>
+                  <p style={{ margin: '5px 0', color: 'var(--text-secondary)' }}>⏳ Waiting for decompilers to process...</p>
+                  <p style={{ margin: '5px 0', color: 'var(--text-secondary)' }}>⏳ Fetching decompiled code...</p>
+                </div>
               </div>
             )}
 
@@ -5614,7 +5295,7 @@ function App() {
               </div>
             )}
 
-            {dogboltResults && !dogboltError && (
+            {dogboltResults && !dogboltLoading && !dogboltError && (
               <div>
                 <div style={{ 
                   display: 'flex', 
@@ -5720,7 +5401,7 @@ function App() {
                           </div>
                         );
                       }
-                      if (selected.code && selected.code.trim().length > 0) {
+                      if (selected.code) {
                         return (
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -5816,47 +5497,13 @@ function App() {
                       maxHeight: '600px',
                       overflow: 'auto'
                     }}>
-                      {originalDogboltResults ? (() => {
-                        let selected: any = null;
-                        
-                        // If we have a selected decompiler, try to match it
-                        if (selectedDecompiler) {
-                          // First try exact key match
-                          selected = originalDogboltResults.decompilers.find((d: any) => d.decompiler_key === selectedDecompiler);
-                          
-                          // If no exact match, try to match by decompiler name (versions might differ)
-                          if (!selected) {
-                            const selectedName = selectedDecompiler.split('-').slice(0, -1).join('-');
-                            selected = originalDogboltResults.decompilers.find((d: any) => 
-                              d.decompiler_name === selectedName && d.has_code
-                            );
-                          }
-                        }
-                        
-                        // If still no match, try to get first available decompiler with code
-                        if (!selected) {
-                          selected = originalDogboltResults.decompilers.find((d: any) => d.has_code);
-                        }
-                        
-                        if (!selected) {
-                          // Check if there are any decompilers at all
-                          if (originalDogboltResults.decompilers.length === 0) {
-                            return (
-                              <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '40px' }}>
-                                <p>No decompilers available for original binary</p>
-                              </div>
-                            );
-                          }
-                          // All decompilers failed
-                          return (
-                            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '40px' }}>
-                              <p>Original binary decompilation not available for this decompiler</p>
-                              <p style={{ fontSize: '0.9em', marginTop: '10px' }}>
-                                Available decompilers: {originalDogboltResults.decompilers.map((d: any) => d.decompiler_name).join(', ')}
-                              </p>
-                            </div>
-                          );
-                        }
+                      {originalDogboltResults && selectedDecompiler ? (() => {
+                        const selected = originalDogboltResults.decompilers.find((d: any) => d.decompiler_key === selectedDecompiler);
+                        if (!selected) return (
+                          <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '40px' }}>
+                            <p>Original binary decompilation not available for this decompiler</p>
+                          </div>
+                        );
                         if (selected.error) {
                           return (
                             <div>
@@ -5867,7 +5514,7 @@ function App() {
                             </div>
                           );
                         }
-                        if (selected.code && selected.code.trim().length > 0) {
+                        if (selected.code) {
                           return (
                             <div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -5945,17 +5592,6 @@ function App() {
                                   <CFGVisualizer code={selected.code} decompilerName={selected.decompiler_name} />
                                 </div>
                               )}
-                            </div>
-                          );
-                        }
-                        // Check if code exists but is empty
-                        if (selected.code !== undefined && selected.code !== null && selected.code.trim().length === 0) {
-                          return (
-                            <div>
-                              <h4 style={{ marginTop: 0 }}>Original Binary - {selected.decompiler_name} v{selected.decompiler_version}</h4>
-                              <div style={{ padding: '15px', backgroundColor: 'var(--bg-tertiary)', borderRadius: '4px', color: 'var(--danger)' }}>
-                                <strong>Error:</strong> Empty decompile result
-                              </div>
                             </div>
                           );
                         }
