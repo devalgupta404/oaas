@@ -56,20 +56,26 @@ The LLVM Binary Obfuscator is a comprehensive code protection toolkit that makes
 
 ### Prerequisites
 
-- Python 3.10+
-- Clang 15+ (or GCC 11+)
-- CMake 3.20+
-- **LLVM 22** (for OLLVM passes and MLIR obfuscation)
-- **MLIR 22** (for MLIR-based passes - included with LLVM 22)
-- **OpenSSL** (for cryptographic symbol hashing)
-- **ClangIR** (optional - for advanced C/C++ pipeline, see [CLANGIR_PIPELINE_GUIDE.md](CLANGIR_PIPELINE_GUIDE.md))
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Python | 3.10+ | Required for CLI and API |
+| Clang | 15+ | Or GCC 11+ for compilation |
+| CMake | 3.20+ | For building MLIR components |
+| LLVM | 22 | For OLLVM passes and MLIR obfuscation |
+| MLIR | 22 | Included with LLVM 22 |
+| OpenSSL | Any | For cryptographic symbol hashing |
+| UPX | 4.0+ | Optional, for binary packing |
 
 ### Option 1: Quick Install (Recommended)
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/llvm-obfuscator.git
-cd llvm-obfuscator
+git clone https://github.com/devalgupta404/oaas.git
+cd oaas
+
+# Create and activate virtual environment (recommended)
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install Python dependencies
 cd cmd/llvm-obfuscator
@@ -80,32 +86,181 @@ cd ../../mlir-obs
 ./build.sh
 cd ..
 
-# Build symbol obfuscator (optional - legacy)
-cd symbol-obfuscator
-mkdir build && cd build
-cmake .. && make
-cd ../..
-
 # Verify installation
-python3 -m cmd.llvm-obfuscator.cli.obfuscate --help
+cd cmd/llvm-obfuscator
+python3 -m cli.obfuscate --help
 ```
 
 ### Option 2: Full Build (with OLLVM Layer 2)
 
 ```bash
 # Clone LLVM with OLLVM passes
-git clone https://github.com/your-org/llvm-project.git
+git clone https://github.com/llvm/llvm-project.git
 cd llvm-project
+git checkout llvmorg-22.0.0  # Or appropriate version
 mkdir build && cd build
 
 # Build LLVM with OLLVM plugin
 cmake -G Ninja ../llvm \
   -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_ENABLE_PROJECTS="clang" \
+  -DLLVM_ENABLE_PROJECTS="clang;mlir" \
   -DLLVM_TARGETS_TO_BUILD="X86;ARM;AArch64"
 ninja
 
+# Add to PATH
+export PATH="$(pwd)/bin:$PATH"
+
 # Continue with Quick Install steps above
+```
+
+### Option 3: Docker Installation
+
+```bash
+# Build the Docker image
+docker build -t llvm-obfuscator -f cmd/llvm-obfuscator/Dockerfile.backend .
+
+# Run the container
+docker run -p 8000:8000 llvm-obfuscator
+```
+
+---
+
+## Building from Source
+
+### Complete Build Steps
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/devalgupta404/oaas.git
+cd oaas
+
+# 2. Set up Python environment
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+
+# 3. Install Python dependencies
+cd cmd/llvm-obfuscator
+pip install -r requirements.txt
+
+# 4. Install development dependencies (optional, for testing)
+pip install pytest pytest-cov httpx
+
+# 5. Build MLIR obfuscation library
+cd ../../mlir-obs
+chmod +x build.sh
+./build.sh
+
+# 6. Verify the installation
+cd ../cmd/llvm-obfuscator
+python3 -m cli.obfuscate --help
+```
+
+### Platform-Specific Notes
+
+#### Linux (Ubuntu/Debian)
+```bash
+# Install system dependencies
+sudo apt-get update
+sudo apt-get install -y \
+    build-essential \
+    cmake \
+    ninja-build \
+    clang \
+    llvm \
+    python3-dev \
+    python3-venv \
+    libssl-dev \
+    upx-ucl
+```
+
+#### macOS
+```bash
+# Install via Homebrew
+brew install cmake ninja llvm python@3.11 openssl upx
+
+# Add LLVM to PATH
+export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+```
+
+#### Windows
+```powershell
+# Install via Chocolatey
+choco install cmake ninja llvm python3 openssl
+
+# Or via winget
+winget install LLVM.LLVM
+winget install Kitware.CMake
+winget install Python.Python.3.11
+```
+
+---
+
+## Running Tests
+
+### Test Suite Overview
+
+The project includes comprehensive unit tests for all core modules:
+
+```
+tests/
+├── conftest.py          # Shared fixtures and configuration
+├── pytest.ini           # Pytest settings
+├── test_config.py       # Tests for configuration module
+├── test_utils.py        # Tests for utility functions
+├── test_cli.py          # Tests for CLI commands
+└── test_api.py          # Tests for API endpoints
+```
+
+### Running Tests
+
+```bash
+# Navigate to project root
+cd oaas
+
+# Run all tests
+pytest tests/ -v
+
+# Run tests with coverage report
+pytest tests/ --cov=cmd/llvm-obfuscator/core --cov-report=html
+
+# Run specific test file
+pytest tests/test_config.py -v
+
+# Run specific test class
+pytest tests/test_config.py::TestPlatform -v
+
+# Run tests matching a pattern
+pytest tests/ -k "test_platform" -v
+
+# Run only unit tests (fast)
+pytest tests/ -m "unit" -v
+
+# Run integration tests
+pytest tests/ -m "integration" -v
+```
+
+### Test Categories
+
+| Marker | Description |
+|--------|-------------|
+| `unit` | Fast unit tests without external dependencies |
+| `integration` | Tests requiring external tools (LLVM, etc.) |
+| `slow` | Tests that take more than 5 seconds |
+
+### CI/CD Integration
+
+Tests are automatically run on:
+- Push to main/master branch
+- Pull requests
+- Scheduled nightly builds
+
+```yaml
+# Example GitHub Actions configuration
+- name: Run tests
+  run: |
+    pip install pytest pytest-cov
+    pytest tests/ --cov=core --cov-report=xml
 ```
 
 ---
